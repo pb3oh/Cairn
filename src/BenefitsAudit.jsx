@@ -772,7 +772,6 @@ function recommendMedicarePath(a, stateData) {
     const drawingSS = a.drawing_ss === "yes";
     const employerLarge = a.employer_coverage === "yes_large";
     const employerSmall = a.employer_coverage === "yes_small";
-    const noEmployer = a.employer_coverage === "no";
     const creditableRx = a.creditable_rx === "yes_creditable";
     const noRx = a.creditable_rx === "no";
     const iep = getIEPWindow(a);
@@ -3273,6 +3272,7 @@ const GUIDE_CATALOG = [
     timeToApply: "About 25 minutes",
     relatedTo: ["irmaa"],
     universal: true,
+    verified: "January 2026",
     sections: [
       "Quickcheck: do you have a life-changing event the SSA recognizes?",
       "Documents you'll need: tax returns, marriage/death certificates, retirement letter",
@@ -3281,6 +3281,130 @@ const GUIDE_CATALOG = [
       "Step 3 — Submitting and what to expect",
       "Decision timeline and how to follow up",
       "If denied: requesting reconsideration",
+    ],
+    steps: [
+      {
+        title: "Quickcheck — does SSA recognize your event?",
+        body: [
+          "IRMAA = the Income-Related Monthly Adjustment Amount added to your Part B and Part D premiums when MAGI exceeds the threshold. SSA bases the surcharge on your tax return from 2 years ago.",
+          "Form SSA-44 is the appeal form — but only 8 specific 'life-changing events' (LCEs) qualify. If your income just dropped because you retired or sold a one-time asset, that's NOT an LCE on its own — only the events listed below.",
+          "The 8 qualifying LCEs: marriage, divorce or annulment, death of a spouse, work stoppage (you fully stopped working), work reduction (hours/income cut), loss of income-producing property (not by sale), loss of pension income, employer settlement payment.",
+          "If your event isn't on this list, SSA-44 won't help — wait for the 2-year lookback to catch up to your reduced income, or appeal through the standard Reconsideration process instead.",
+        ],
+      },
+      {
+        title: "Documents to gather",
+        body: [
+          "You will mail or fax the form (no online submission). Have ready before you start:",
+          "Most recent IRMAA determination letter from SSA (the one telling you about the surcharge).",
+          "Documentation proving the LCE: marriage certificate, divorce decree, death certificate, employer letter confirming work stoppage / reduction with last day worked, statement showing pension cessation, etc.",
+          "Most recent federal tax return (Form 1040), or — if you're using estimated current-year income — a signed statement explaining your estimate.",
+          "Your full Medicare claim number (MBI) from the front of your red-white-blue card.",
+        ],
+      },
+      {
+        title: "Download Form SSA-44 from ssa.gov",
+        body: [
+          "Go to ssa.gov/forms and search 'SSA-44' or download directly from ssa.gov/forms/ssa-44.pdf.",
+          "The form is 8 pages — pages 1–4 are instructions, pages 5–8 are the fillable form.",
+          "You can fill it on screen in Adobe Reader or print and complete by hand. Either is accepted.",
+        ],
+        fields: [
+          { label: "Form version date", note: "Verify the form footer date is current. SSA reissues SSA-44 most years — using an outdated version can trigger rejection." },
+        ],
+      },
+      {
+        title: "Step 1 — Type of Life-Changing Event",
+        body: [
+          "Check exactly one box. If two events apply (e.g., death of spouse + work stoppage), file two separate SSA-44s.",
+          "Enter the date the event happened in MM/DD/YYYY format.",
+        ],
+        fields: [
+          { label: "Marriage", note: "Check if you married. Documentation: marriage certificate." },
+          { label: "Divorce or Annulment", note: "Documentation: divorce decree or annulment order." },
+          { label: "Death of Your Spouse", note: "Documentation: death certificate." },
+          { label: "Work Stoppage", note: "You fully stopped working (retirement, layoff, business closed). Documentation: signed employer statement with last day worked OR severance/termination letter." },
+          { label: "Work Reduction", note: "Hours or income reduced. Documentation: signed employer statement detailing the reduction and effective date." },
+          { label: "Loss of Income-Producing Property", note: "Not from a sale — must be from disaster, theft, or seizure. Documentation: insurance/disaster report, court order." },
+          { label: "Loss of Pension Income", note: "Pension stopped or was cut due to plan termination/reorganization. Documentation: letter from the pension administrator." },
+          { label: "Employer Settlement Payment", note: "Court-ordered payment from a former employer over a closed/bankrupt pension. Documentation: court order or settlement agreement." },
+          { label: "Date of life-changing event", note: "MM/DD/YYYY. Must be on or before the date you're filing." },
+        ],
+      },
+      {
+        title: "Step 2 — Reduction in Income (the section most people fill wrong)",
+        body: [
+          "This is where you tell SSA which year's income to use INSTEAD of the 2-years-ago return.",
+          "Two choices: (a) the most recent tax year you've already filed, or (b) the year you're currently in (estimated). For most LCE appeals, the current-year estimate is what produces the IRMAA reduction — the prior tax year usually still shows the high income.",
+          "If you choose the current-year estimate, you must explain how you got the number. SSA will reconcile against your actual tax return when you file it.",
+        ],
+        fields: [
+          { label: "Tax year you want SSA to use", value: "{{currentYear}} (estimated)", note: "Pick the year that, post-LCE, has lower income. For most people that's the current year." },
+          { label: "Estimated Modified AGI (line A)", value: "{{annualIncome}} (your stated annual income)", note: "MAGI = AGI from Form 1040 Line 11 + tax-exempt interest from Line 2a. If using current-year estimate, this is your projection.", verifyOnLiveForm: true },
+          { label: "Estimated tax-exempt interest (line B)", note: "From Form 1040 Line 2a. Most retirees: $0. Add municipal bond interest if any." },
+          { label: "Sum (line A + line B)", note: "This is the figure SSA uses. Put it in the 'Modified AGI' box." },
+        ],
+      },
+      {
+        title: "Step 3 — Tax Filing Status",
+        body: [
+          "Check the filing status that matches the year you used in Step 2 — NOT necessarily your status today.",
+          "If you got married this year, you're likely Married Filing Jointly for the current year even if you were Single on the 2-years-ago return.",
+        ],
+        fields: [
+          { label: "Single", value: "{{filingStatusSingle}}" },
+          { label: "Married Filing Jointly", value: "{{filingStatusJoint}}" },
+          { label: "Married Filing Separately", note: "MFS has its own (lower) IRMAA thresholds. Check this only if you actually file separately." },
+          { label: "Head of Household" },
+          { label: "Qualifying Widow(er)", note: "Available for 2 years after spouse's death if you have a qualifying dependent." },
+        ],
+      },
+      {
+        title: "Step 4 — Documentation checklist",
+        body: [
+          "On page 4 of the form, attach copies (NOT originals) of the LCE documentation matching the box you checked in Step 1.",
+          "Also attach: a copy of your most recent tax return, OR a signed and dated statement explaining your current-year estimate.",
+          "Common rejection reason: incomplete documentation. If you checked 'Work Stoppage' but only attach a personal letter — not from your employer — SSA will deny the appeal as unsubstantiated.",
+        ],
+        fields: [
+          { label: "LCE documentation", note: "Match exactly to the box you checked in Step 1." },
+          { label: "Tax return OR signed estimate statement", note: "If estimating, include: the year you're estimating, the dollar amount, and the basis (e.g., 'projected wages of $X plus pension of $Y for the remainder of the year')." },
+          { label: "Copy of IRMAA determination letter", note: "Optional but speeds processing — SSA can match your appeal to the right tax year faster." },
+        ],
+      },
+      {
+        title: "Step 5 — Sign, date, and submit",
+        body: [
+          "Sign on page 4. The form is invalid without a wet or e-signature.",
+          "Mail or fax to your local Social Security field office (find at ssa.gov/locator). You can also drop off in person.",
+          "Do NOT mail to the SSA national headquarters — local offices process IRMAA appeals.",
+          "Keep a complete copy of everything you send, including the postmark receipt or fax confirmation page.",
+        ],
+        fields: [
+          { label: "Signature", note: "Wet ink or e-signature. SSA does not accept '/s/ name' typed signatures on this form.", verifyOnLiveForm: true },
+          { label: "Date signed", note: "MM/DD/YYYY." },
+          { label: "Daytime phone number", note: "SSA may call to clarify your estimate or request additional documentation." },
+        ],
+      },
+      {
+        title: "What happens next — timeline and follow-up",
+        body: [
+          "SSA targets 30 days for processing, but 60–90 days is common, especially in Q1 (lots of newly Medicare-eligible filers).",
+          "If approved, SSA recalculates your premium and refunds any over-deduction. The refund appears as a credit in your next Social Security check or as a one-time deposit.",
+          "If denied, you have 60 days to request Reconsideration (Form SSA-561). The reconsidered decision can be further appealed to an Administrative Law Judge.",
+          "If you used a current-year estimate, you must file SSA-44 again next year if your actual MAGI ends up different — SSA does NOT automatically reconcile.",
+        ],
+      },
+      {
+        title: "Common reasons SSA-44 appeals are denied (and how to avoid each)",
+        body: [
+          "1. Event isn't a recognized LCE. Solution: confirm against the 8-event list before filing.",
+          "2. Incomplete documentation. Solution: include the specific document type SSA requires for the LCE you claimed (the form's instructions list this on page 2).",
+          "3. Estimated income is unsubstantiated. Solution: write a detailed statement showing the math — e.g., '$2,200/mo Social Security + $850/mo pension * 12 = $36,600 expected MAGI'.",
+          "4. Filing status doesn't match the tax year. Solution: use the status for the year in Step 2, not today's status.",
+          "5. Form version is outdated. Solution: download fresh from ssa.gov each year.",
+        ],
+      },
     ],
     sample: "p. 4 — Form SSA-44 with our example for 'work stoppage' showing exactly which figures go in the modified AGI box.",
   },
@@ -3354,6 +3478,10 @@ function buildPersonalizationContext(answers) {
     stateMspGuidance = `Apply at ${stateData.mspApplyUrl}. ${stateName}'s Medicaid agency processes the application.`;
   }
 
+  const monthlyIncome = Number(a.income) || 0;
+  const annualIncome = monthlyIncome > 0 ? `$${(monthlyIncome * 12).toLocaleString()}` : "your annual income";
+  const isCouple = a.marital === "couple";
+
   return {
     stateName,
     birthDate,
@@ -3366,6 +3494,10 @@ function buildPersonalizationContext(answers) {
     employerCoverageGuidance,
     employerCoverageAnswer,
     nextStepsGuidance,
+    currentYear: String(new Date().getFullYear()),
+    annualIncome,
+    filingStatusSingle: isCouple ? "" : "(check this — you're filing single)",
+    filingStatusJoint: isCouple ? "(check this — you're married filing jointly)" : "",
   };
 }
 
