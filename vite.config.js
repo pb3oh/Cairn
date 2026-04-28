@@ -7,5 +7,5 @@ import react from "@vitejs/plugin-react";
 // If you deploy to a custom domain or to a `<username>.github.io` repo, use "/".
 export default defineConfig({
   plugins: [react()],
-  base: "/cairn-prototype/",
+  base: "/cairn/",
 });
