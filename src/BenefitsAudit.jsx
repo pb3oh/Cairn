@@ -520,8 +520,50 @@ function getStateData(stateCode) {
   };
 }
 
+// ── Date / age helpers ────────────────────────────────────────────────
+// We collect birth month + year (not full DOB) so we can render hard
+// IEP boundary dates without storing a more sensitive full date of birth.
+
+const MONTHS = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
+
+function getAge(a) {
+  // Prefer derived age from birth_year/birth_month; fall back to legacy age field.
+  const by = Number(a && a.birth_year);
+  const bm = Number(a && a.birth_month); // 1–12
+  if (!by || by < 1900 || by > 2100) return Number((a && a.age) || 0) || 0;
+  const now = new Date();
+  let age = now.getFullYear() - by;
+  if (bm && (now.getMonth() + 1 < bm)) age -= 1;
+  return age;
+}
+
+// IEP = 3 months before birth month through 3 months after = 7-month window.
+// Coverage starts the first day of the birth month for most enrollees.
+function getIEPWindow(a) {
+  const by = Number(a && a.birth_year);
+  const bm = Number(a && a.birth_month);
+  if (!by || !bm) return null;
+  const sixtyFifth = new Date(by + 65, bm - 1, 1);
+  const start = new Date(sixtyFifth); start.setMonth(start.getMonth() - 3);
+  const end = new Date(sixtyFifth);   end.setMonth(end.getMonth() + 3);
+  // End on the last day of that month
+  end.setMonth(end.getMonth() + 1); end.setDate(0);
+  const fmt = (d) => `${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
+  const fmtFull = (d) => `${MONTHS[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
+  return {
+    start, end, sixtyFifth,
+    startLabel: fmt(start),
+    endLabel: fmtFull(end),
+    partBStartLabel: fmt(sixtyFifth),
+  };
+}
+
 const QUESTIONS = [
-  { id: "age", section: "About you", question: "How old are you?", helper: "We use this to check Medicare and senior-program eligibility.", type: "number", min: 50, max: 110, placeholder: "e.g., 67" },
+  { id: "birth_month", section: "About you", question: "What month were you born?", helper: "We use this to figure out your Medicare enrollment window — and to flag any deadlines coming up.", type: "choice", options: MONTHS.map((m, i) => ({ value: String(i + 1), label: m })) },
+  { id: "birth_year", section: "About you", question: "What year were you born?", helper: "Combined with your birth month, this lets us calculate your Initial Enrollment Period dates.", type: "number", min: 1915, max: 1975, placeholder: "e.g., 1958" },
   { id: "marital", section: "About you", question: "What's your household situation?", type: "choice", options: [{ value: "single", label: "Just me" }, { value: "couple", label: "Me and a spouse" }] },
   { id: "state", section: "About you", question: "Which state do you live in?", helper: "Eligibility thresholds and state-specific programs vary. We'll customize your results.", type: "choice", options: [
     { value: "AL", label: "Alabama" }, { value: "AK", label: "Alaska" }, { value: "AZ", label: "Arizona" }, { value: "AR", label: "Arkansas" },
@@ -540,6 +582,12 @@ const QUESTIONS = [
   ] },
   { id: "zip", section: "About you", question: "What's your ZIP code?", helper: "Some senior tax credits and waiver programs are county-specific. We'll surface what applies where you live.", type: "zip", placeholder: "e.g., 21403" },
   { id: "medicare_status", section: "Medicare", question: "Where are you with Medicare today?", type: "choice", options: [{ value: "not_yet", label: "Not enrolled yet" }, { value: "ab_only", label: "I have Original Medicare (Parts A and B)" }, { value: "advantage", label: "I'm on a Medicare Advantage plan" }, { value: "medigap", label: "I have Original Medicare plus a Medigap policy" }] },
+  // Pre-enrollment questions: only shown to users not yet enrolled. These drive
+  // the auto-enroll vs. active-enroll messaging, the Special Enrollment Period
+  // logic, and the Part D late-penalty risk calculation.
+  { id: "drawing_ss", section: "Medicare", question: "Are you already drawing Social Security retirement benefits?", helper: "If yes, you'll be auto-enrolled in Medicare Parts A and B. If no, you'll need to actively sign up at ssa.gov.", type: "choice", showIf: (a) => a.medicare_status === "not_yet", options: [{ value: "yes", label: "Yes, already collecting" }, { value: "no", label: "No, not yet" }] },
+  { id: "employer_coverage", section: "Medicare", question: "Are you (or your spouse) still working with employer health coverage?", helper: "Active employer coverage from a 20+-employee company can let you delay Part B without a late penalty — and gives you a Special Enrollment Period later.", type: "choice", showIf: (a) => a.medicare_status === "not_yet", options: [{ value: "yes_large", label: "Yes — employer has 20+ employees" }, { value: "yes_small", label: "Yes — but employer has fewer than 20 employees" }, { value: "no", label: "No employer coverage" }] },
+  { id: "creditable_rx", section: "Medicare", question: "Do you have prescription drug coverage today?", helper: "If your current drug coverage is 'creditable' (at least as good as Medicare Part D), you can delay Part D without a late penalty.", type: "choice", showIf: (a) => a.medicare_status === "not_yet", options: [{ value: "yes_creditable", label: "Yes — and I've confirmed it's 'creditable'" }, { value: "yes_unknown", label: "Yes — but I'm not sure if it's creditable" }, { value: "no", label: "No drug coverage" }] },
   { id: "income", section: "Finances", question: "What's your gross monthly household income?", helper: "Include Social Security, pensions, wages, IRA distributions, rental income — before taxes.", type: "number", min: 0, max: 100000, placeholder: "e.g., 3200", prefix: "$" },
   { id: "assets", section: "Finances", question: "Roughly, what are your liquid assets?", helper: "Checking, savings, brokerage, IRAs, 401(k)s. Don't include your home or one car.", type: "choice", options: [{ value: "low", label: "Under $10,000" }, { value: "mid_low", label: "$10,000 – $35,000" }, { value: "mid", label: "$35,000 – $150,000" }, { value: "high", label: "Over $150,000" }] },
   { id: "homeowner", section: "Finances", question: "Do you own your primary residence?", type: "choice", options: [{ value: "yes", label: "Yes, I own" }, { value: "no", label: "No, I rent" }] },
@@ -553,7 +601,7 @@ function evaluate(answers) {
   const isCouple = answers.marital === "couple";
   const hh = isCouple ? 2 : 1;
   const income = Number(answers.income) || 0;
-  const ageNum = Number(answers.age) || 0;
+  const ageNum = getAge(answers);
   const annualIncome = income * 12;
   const fplAnnual = FPL_2026[hh];
   const assetTier = answers.assets;
@@ -686,7 +734,7 @@ function evaluate(answers) {
 // answers so far. The user is free to override, but the suggestion saves
 // most users a tap and ensures the recommendation engine has good defaults.
 function suggestPriority(a) {
-  const ageNum = Number(a.age) || 0;
+  const ageNum = getAge(a);
   const income = Number(a.income) || 0;
   const annualIncome = income * 12;
   const assets = a.assets;
@@ -710,7 +758,7 @@ function suggestPriority(a) {
 }
 
 function recommendMedicarePath(a, stateData) {
-  const status = a.medicare_status, priority = a.priority, rx = a.rx, assets = a.assets, age = Number(a.age) || 0;
+  const status = a.medicare_status, priority = a.priority, rx = a.rx, assets = a.assets, age = getAge(a);
   const carriers = stateData ? stateData.medigapCarriers : NATIONAL_CARRIERS;
   const stateName = stateData ? stateData.name : "your state";
   const shipUrl = stateData && stateData.shipUrl ? stateData.shipUrl : "https://www.shiphelp.org/";
@@ -720,8 +768,150 @@ function recommendMedicarePath(a, stateData) {
   const hasMedigap = status === "medigap";
   const onAdvantage = status === "advantage";
 
-  if (status === "not_yet" && age < 65) {
-    const yearsOut = 65 - age;
+  if (status === "not_yet") {
+    const drawingSS = a.drawing_ss === "yes";
+    const employerLarge = a.employer_coverage === "yes_large";
+    const employerSmall = a.employer_coverage === "yes_small";
+    const noEmployer = a.employer_coverage === "no";
+    const creditableRx = a.creditable_rx === "yes_creditable";
+    const noRx = a.creditable_rx === "no";
+    const iep = getIEPWindow(a);
+
+    // Late enrollment: past 65, never signed up. Penalty math and SEP rules dominate.
+    if (age >= 66) {
+      const monthsLate = Math.max(0, (age - 65) * 12);
+      const penaltyPct = Math.floor(monthsLate / 12) * 10; // 10% per full 12-month delay, lifetime
+      const hasSEP = employerLarge; // 8-month SEP after employer coverage ends
+      const points = [
+        hasSEP
+          ? "Active employer coverage from a 20+-employee company gives you a Special Enrollment Period — you can enroll without a Part B late penalty for up to 8 months after that coverage ends."
+          : `You're past 65 without Medicare and without qualifying employer coverage. Each full 12 months you've delayed adds a permanent 10% to your Part B premium — currently roughly ${penaltyPct}% extra for life.`,
+        noRx
+          ? "You've also gone without creditable drug coverage. Part D adds a separate 1%-per-month lifetime late-enrollment penalty."
+          : creditableRx
+            ? "Your existing creditable drug coverage protects you from the Part D late-enrollment penalty as long as you don't go more than 63 days without it after enrolling."
+            : "Confirm whether your current drug coverage is 'creditable' — your insurer must send you a notice each fall. Non-creditable coverage triggers the Part D late penalty.",
+        "General Enrollment runs January 1 – March 31 each year, with coverage starting the month after enrollment.",
+      ];
+      return {
+        title: hasSEP ? "You qualify for a Special Enrollment Period" : "Late Medicare enrollment — act this General Enrollment",
+        summary: hasSEP
+          ? "Active large-employer coverage protects you from the Part B late penalty. Use your 8-month SEP when that coverage ends."
+          : `You're approximately ${monthsLate} months past your Initial Enrollment Period. Enrolling at the next General Enrollment locks in the penalty at its current level — every additional year delays it 10% higher.`,
+        points,
+        enrollmentSteps: [
+          {
+            n: 1,
+            title: hasSEP ? "Complete CMS-L564 with your employer" : "File at ssa.gov during General Enrollment (Jan 1 – Mar 31)",
+            why: hasSEP
+              ? "Form CMS-L564 documents your continuous active-employer coverage and unlocks the SEP. Your HR department fills out Section B; you mail it to SSA with your enrollment application."
+              : "Coverage starts the month after you enroll. SSA processes General Enrollment applications in the order received — earlier in the window means earlier coverage.",
+            link: hasSEP
+              ? { label: "Form CMS-L564 (Employment Coverage)", url: "https://www.cms.gov/medicare/forms-notices/cms-forms/cms-forms-list" }
+              : { label: "Sign up for Medicare at SSA", url: "https://www.ssa.gov/medicare/sign-up" },
+          },
+          {
+            n: 2,
+            title: "Choose Part D or Medicare Advantage",
+            why: noRx
+              ? "Without creditable coverage you've also accumulated a Part D late penalty. Enroll during the same window — there's no advantage to waiting longer."
+              : "You can pick a standalone Part D plan (with Original Medicare + Medigap) or a Medicare Advantage plan that includes drug coverage.",
+            link: { label: "Compare plans on Plan Finder", url: "https://www.medicare.gov/plan-compare/" },
+          },
+          {
+            n: 3,
+            title: hasSEP ? "Apply for Medigap during your guaranteed-issue window" : "Apply for Medigap during your one-time guaranteed-issue window",
+            why: "Your Medigap guaranteed-issue rights last 6 months from the date Part B starts. Outside that window, most carriers can deny coverage or raise rates based on health.",
+            showCarriers: true,
+          },
+          {
+            n: 4,
+            title: `Get free help from ${stateName} SHIP`,
+            why: `Late-enrollment cases benefit most from one-on-one counseling — SHIP counselors can help you appeal a penalty if you have an Equitable Relief case (e.g., wrong information from a federal employee).`,
+            link: { label: `${stateName} SHIP counseling`, url: shipUrl },
+          },
+        ],
+        carriers: carriers,
+        stateName: stateName,
+        medigapNote: stateData ? stateData.medigapNote : null,
+      };
+    }
+
+    // In the IEP (age 64–65, with hard dates we can render).
+    if (age >= 64 && iep) {
+      const points = [
+        `Your 7-month Initial Enrollment Period runs ${iep.startLabel} through ${iep.endLabel}. Coverage starts ${iep.partBStartLabel} if you enroll during the 4 months before your birth month.`,
+        drawingSS
+          ? "Because you're already drawing Social Security, you'll be auto-enrolled in Parts A and B. Your card arrives ~3 months before your birth month — no action required unless you want to opt out of Part B."
+          : "You're not yet drawing Social Security, so Medicare won't auto-enroll you. You need to actively sign up at ssa.gov.",
+        employerLarge
+          ? "If you have active 20+-employee employer coverage and want to delay Part B, you can — your Special Enrollment Period gives you 8 months after that coverage ends to enroll without penalty. Most people in your situation should still enroll in Part A (it's premium-free)."
+          : employerSmall
+            ? "Your employer coverage is from a small-group plan (<20 employees). Medicare becomes the primary payer at 65, so delaying Part B is risky — your employer plan may pay only what Medicare would have paid."
+            : "Without employer coverage, plan to enroll in both Part A and Part B during this IEP. Missing it triggers a permanent 10% Part B penalty for every 12 months delayed.",
+        creditableRx
+          ? "Your existing drug coverage is creditable, so you can delay Part D without penalty as long as you don't go more than 63 days without coverage after enrolling."
+          : noRx
+            ? "Without drug coverage, enroll in a Part D plan during your IEP to avoid the 1%-per-month lifetime late penalty."
+            : "Verify whether your current drug coverage is 'creditable' — your insurer is required to send you a notice each fall. If not, plan on Part D.",
+      ];
+      const steps = [];
+      if (!drawingSS) {
+        steps.push({
+          n: steps.length + 1,
+          title: "Create your my Social Security account at ssa.gov",
+          why: "You'll need this account to apply for Medicare online. Allow 10 minutes — identity verification uses your prior addresses and employers from credit history.",
+          link: { label: "Create account at SSA", url: "https://www.ssa.gov/myaccount/" },
+        });
+        steps.push({
+          n: steps.length + 1,
+          title: `Apply for Medicare A and B by ${iep.endLabel}`,
+          why: `Your IEP ends ${iep.endLabel}. Apply at least 1 month before your birth month for coverage starting ${iep.partBStartLabel}.`,
+          link: { label: "Sign up for Medicare", url: "https://www.ssa.gov/medicare/sign-up" },
+        });
+      } else {
+        steps.push({
+          n: steps.length + 1,
+          title: "Watch for your Medicare card in the mail",
+          why: `Because you're drawing Social Security, A and B auto-enroll. Your card arrives roughly 3 months before ${iep.partBStartLabel}. If you want to decline Part B (almost no one should), follow the instructions on the card.`,
+          link: { label: "What your Medicare card looks like", url: "https://www.medicare.gov/basics/get-started-with-medicare/medicare-basics/medicare-cards" },
+        });
+      }
+      if (!creditableRx) {
+        steps.push({
+          n: steps.length + 1,
+          title: "Choose a Part D drug plan before your IEP closes",
+          why: rx === "many"
+            ? "With your medication load, run your specific drugs through Plan Finder — total annual cost matters more than premium."
+            : "Pick the lowest-premium plan that covers what you take. Re-shop every fall during Open Enrollment.",
+          link: { label: "Compare Part D plans", url: "https://www.medicare.gov/plan-compare/" },
+        });
+      }
+      steps.push({
+        n: steps.length + 1,
+        title: "Apply for Medigap within 6 months of Part B starting",
+        why: `Your guaranteed-issue window runs from ${iep.partBStartLabel} for 6 months. Inside it, no carrier can deny you for health reasons. Outside it, most can.`,
+        showCarriers: true,
+      });
+      steps.push({
+        n: steps.length + 1,
+        title: `Talk to ${stateName} SHIP for free`,
+        why: `${stateName}'s SHIP counselors are unbiased and free — no sales pitch. They'll review your specific options before you enroll.`,
+        link: { label: `${stateName} SHIP counseling`, url: shipUrl },
+      });
+      return {
+        title: `Your Initial Enrollment Period: ${iep.startLabel} – ${iep.endLabel}`,
+        summary: `Coverage starts ${iep.partBStartLabel}. ${drawingSS ? "You'll be auto-enrolled — confirm your card arrives." : "You need to actively sign up at ssa.gov."}`,
+        points,
+        carriers,
+        stateName,
+        medigapNote: stateData ? stateData.medigapNote : null,
+        enrollmentSteps: steps,
+      };
+    }
+
+    // Pre-65 planning runway (still under 64).
+    const yearsOut = Math.max(1, 65 - age);
 
     // Long planning runway (5+ years out): only the IRMAA/Roth point matters now.
     // Everything else is premature and would just create noise.
@@ -940,13 +1130,39 @@ function recommendMedicarePath(a, stateData) {
 
 function generateWatchouts(a) {
   const out = [];
-  const age = Number(a.age) || 0;
+  const age = getAge(a);
+  const iep = getIEPWindow(a);
   if (age >= 64 && age <= 65 && a.medicare_status === "not_yet") {
     out.push({
       level: "high",
-      title: "Initial Enrollment Period is closing",
-      body: "Your 7-month IEP window starts 3 months before your 65th birthday and ends 3 months after. Missing Part B enrollment triggers a 10% permanent penalty for every 12 months you delay.",
-      link: { label: "Sign up for Medicare", url: "https://www.medicare.gov/sign-up-change-plans/how-do-i-get-parts-a-b" },
+      title: iep ? `IEP closes ${iep.endLabel}` : "Initial Enrollment Period is closing",
+      body: iep
+        ? `Your 7-month Initial Enrollment Period runs ${iep.startLabel} through ${iep.endLabel}. ${a.drawing_ss === "yes" ? "Because you're drawing Social Security, you'll auto-enroll — but confirm your card arrives." : "You need to actively sign up at ssa.gov."} Missing Part B triggers a permanent 10% penalty for every 12 months delayed.`
+        : "Your 7-month IEP window starts 3 months before your 65th birthday and ends 3 months after. Missing Part B enrollment triggers a 10% permanent penalty for every 12 months you delay.",
+      link: { label: "Sign up for Medicare", url: "https://www.ssa.gov/medicare/sign-up" },
+    });
+  }
+  if (age >= 66 && a.medicare_status === "not_yet") {
+    const monthsLate = Math.max(0, (age - 65) * 12);
+    const penaltyPct = Math.floor(monthsLate / 12) * 10;
+    const hasSEP = a.employer_coverage === "yes_large";
+    out.push({
+      level: "high",
+      title: hasSEP ? "You qualify for a Special Enrollment Period" : `Late enrollment — Part B penalty is ~${penaltyPct}%`,
+      body: hasSEP
+        ? "Your active 20+-employee employer coverage shields you from the Part B late penalty. When that coverage ends, you have 8 months to enroll without penalty using Form CMS-L564."
+        : `You're roughly ${monthsLate} months past your IEP. The next chance to enroll is the General Enrollment Period (Jan 1 – Mar 31). The penalty locks in at ~${penaltyPct}% — every additional 12-month delay adds another 10% for life.`,
+      link: hasSEP
+        ? { label: "Form CMS-L564", url: "https://www.cms.gov/medicare/forms-notices/cms-forms/cms-forms-list" }
+        : { label: "General Enrollment overview", url: "https://www.medicare.gov/basics/get-started-with-medicare/sign-up-for-medicare/when-does-medicare-coverage-start" },
+    });
+  }
+  if (a.medicare_status === "not_yet" && a.creditable_rx === "no" && age >= 64) {
+    out.push({
+      level: "high",
+      title: "Part D late penalty is accruing",
+      body: "Without creditable drug coverage, every month past your IEP without Part D adds 1% to your Part D premium for life. Even if you take no medications now, enrolling in the cheapest plan you can find avoids the penalty.",
+      link: { label: "Compare Part D plans", url: "https://www.medicare.gov/plan-compare/" },
     });
   }
   if (a.medicare_status === "advantage") {
@@ -1337,13 +1553,13 @@ function Landing({ onStart }) {
             <SectionLabel>How it works</SectionLabel>
             <h2 style={{ fontFamily: "'Newsreader', serif", fontSize: "clamp(2rem, 4.5vw, 3rem)", lineHeight: 1.1, fontWeight: 500, letterSpacing: "-0.02em", maxWidth: "640px", margin: "0 auto", color: C.ink }}>
               Honest answers to{" "}
-              <span style={{ fontStyle: "italic", color: C.accent }}>twelve simple questions</span>{" "}
+              <span style={{ fontStyle: "italic", color: C.accent }}>a dozen plain questions</span>{" "}
               are all we need.
             </h2>
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: "1.5rem" }}>
             {[
-              { num: "01", title: "Tell us about you", body: "Twelve plain-English questions about your age, household, income, and Medicare status. No name, address, or SSN." },
+              { num: "01", title: "Tell us about you", body: "A dozen plain-English questions about your birth date, household, income, and Medicare status. No name, address, or SSN." },
               { num: "02", title: "We run the math", body: "Our engine checks your inputs against 14+ federal, state, and county programs — including thresholds most brokers don't track." },
               { num: "03", title: "Get a personal report", body: "A ranked list of programs with dollar values, application links, and a Medicare path tailored to your priorities." },
             ].map((s, i) => (
@@ -1786,9 +2002,16 @@ function WatchoutCard({ w, defaultOpen = false }) {
 }
 
 function Audit({ step, setStep, answers, setAnswers, onComplete, onExit }) {
-  const totalSteps = QUESTIONS.length;
-  const progress = ((step + 1) / totalSteps) * 100;
-  const currentQ = QUESTIONS[step];
+  // Filter to questions whose showIf predicate (if any) passes against current answers.
+  // This lets pre-enrollment questions appear only for users who say they're not yet on Medicare.
+  const activeQuestions = useMemo(
+    () => QUESTIONS.filter(q => !q.showIf || q.showIf(answers)),
+    [answers]
+  );
+  const totalSteps = activeQuestions.length;
+  const safeStep = Math.min(step, totalSteps - 1);
+  const progress = ((safeStep + 1) / totalSteps) * 100;
+  const currentQ = activeQuestions[safeStep];
   const setAnswer = (val) => setAnswers(prev => ({ ...prev, [currentQ.id]: val }));
   const canAdvance = () => {
     const v = answers[currentQ.id];
@@ -1802,21 +2025,21 @@ function Audit({ step, setStep, answers, setAnswers, onComplete, onExit }) {
     }
     return v !== undefined && v !== "";
   };
-  const next = () => step === totalSteps - 1 ? onComplete() : setStep(step + 1);
-  const back = () => step === 0 ? onExit() : setStep(step - 1);
+  const next = () => safeStep === totalSteps - 1 ? onComplete() : setStep(safeStep + 1);
+  const back = () => safeStep === 0 ? onExit() : setStep(safeStep - 1);
 
   return (
     <div style={{ minHeight: "100vh", padding: "2rem 1.5rem" }}>
       <div style={{ maxWidth: "720px", margin: "0 auto" }}>
         <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "2rem", paddingBottom: "1rem", borderBottom: `1px solid ${C.line}` }}>
           <Wordmark />
-          <span style={{ fontSize: "0.85rem", color: C.faint, fontVariantNumeric: "tabular-nums" }}>{step + 1} / {totalSteps}</span>
+          <span style={{ fontSize: "0.85rem", color: C.faint, fontVariantNumeric: "tabular-nums" }}>{safeStep + 1} / {totalSteps}</span>
         </header>
         <div style={{ height: "2px", background: C.line, marginBottom: "3rem", borderRadius: "2px", overflow: "hidden" }}>
           <div style={{ width: `${progress}%`, height: "100%", background: C.accent, transition: "width 0.4s cubic-bezier(0.4, 0, 0.2, 1)" }} />
         </div>
 
-        <div key={step} className="fade-up">
+        <div key={safeStep} className="fade-up">
           {currentQ.section && <SectionLabel>{currentQ.section}</SectionLabel>}
           <h2 style={{ fontFamily: "'Newsreader', serif", fontSize: "clamp(1.75rem, 4vw, 2.5rem)", lineHeight: 1.15, fontWeight: 500, letterSpacing: "-0.02em", marginBottom: "0.75rem", color: C.ink }}>
             {currentQ.question}
@@ -2641,6 +2864,7 @@ const GUIDE_CATALOG = [
     pages: 8,
     timeToApply: "About 25 minutes",
     relatedTo: ["lis", "qmb", "slmb", "qi"],
+    verified: "January 2026",
     sections: [
       "Before you start: documents you'll need",
       "Step 1 — Open ssa.gov/extrahelp (annotated screenshot)",
@@ -2651,6 +2875,72 @@ const GUIDE_CATALOG = [
       "If denied: how to appeal and what evidence to gather",
       "Annual renewal: how to keep your benefit",
     ],
+    steps: [
+      {
+        title: "Before you start: documents to gather",
+        body: [
+          "Allow 25 minutes. The application is one online form, but you'll be asked for specific dollar amounts that are easier to look up before you start.",
+          "Have ready: most recent Social Security award letter, prior-year tax return (for AGI), most recent bank/brokerage statements, mortgage or rent statement, current Part D plan name and member ID.",
+        ],
+      },
+      {
+        title: "Step 1 — Open ssa.gov/extrahelp",
+        body: [
+          "From a desktop browser, go to ssa.gov/extrahelp and click 'Apply for Extra Help with Medicare Prescription Drug Plan Costs'.",
+          "You can complete the form without a my Social Security account, but signing in with one auto-fills several fields.",
+        ],
+        fields: [
+          { label: "Are you applying for yourself or someone else?", value: "Myself", note: "Pick 'Someone else' only if you have power of attorney or are a legal representative." },
+          { label: "Are you currently enrolled in a Medicare Part D plan?", note: "Yes if you have prescription drug coverage. The form asks for your plan name next." },
+        ],
+      },
+      {
+        title: "Step 2 — Identity and household",
+        body: [
+          "Use the legal name on your Social Security card.",
+        ],
+        fields: [
+          { label: "Full legal name, SSN, date of birth", value: "{{birthDate}}", note: "Must match SSA records exactly." },
+          { label: "Marital status and household size", value: "{{maritalLabel}}", note: "Household = you + your spouse if you live together. Adult children don't count even if they live with you." },
+          { label: "Address", note: "Where SSA will mail your decision letter." },
+        ],
+      },
+      {
+        title: "Step 3 — Income (the page where most mistakes happen)",
+        body: [
+          "Enter your *gross* monthly income — before taxes and Medicare premiums. Include Social Security, pensions, wages, IRA withdrawals, and rental income.",
+          "Do NOT include: SSI, VA benefits, housing assistance, food stamps, or in-kind support from family. SSA explicitly excludes these.",
+        ],
+        fields: [
+          { label: "Gross monthly Social Security", note: "From your most recent SSA-1099 or award letter, before the Medicare Part B deduction." },
+          { label: "Gross monthly pensions / annuities", note: "Sum of all pensions before tax withholding." },
+          { label: "Gross monthly wages", note: "If still working — gross pay, not take-home." },
+          { label: "Other income (interest, dividends, rental)", note: "Monthly average. Use last year's totals divided by 12." },
+        ],
+      },
+      {
+        title: "Step 4 — Resources (what counts, what doesn't)",
+        body: [
+          "Resources = liquid assets. The 2026 limit is $17,600 for an individual or $35,130 for a couple.",
+          "Do NOT count: your primary home, one car, household goods, burial plot, life insurance with face value under $1,500.",
+          "DO count: checking, savings, CDs, brokerage accounts, IRAs, 401(k)s (yes — IRAs count for Extra Help even though they don't for some other programs).",
+        ],
+        fields: [
+          { label: "Total in checking/savings", note: "Combined balance across all accounts." },
+          { label: "Stocks, bonds, mutual funds", note: "Current market value, not what you paid." },
+          { label: "Retirement accounts", note: "IRAs and 401(k)s count even if untouched." },
+          { label: "Real estate other than your home", note: "Rental properties, vacant land — current market value." },
+        ],
+      },
+      {
+        title: "Step 5 — Submit and save confirmation",
+        body: [
+          "After review, type your name as electronic signature. SSA shows a confirmation number on screen and emails one within 24 hours.",
+          "Decision timeline: 1–3 weeks for online applications.",
+          "If approved, the subsidy is automatic — your Part D plan applies it; no further action needed.",
+        ],
+      },
+    ],
     sample: "p. 4 — Resource verification screen, annotated with arrows showing which fields exclude your home and one car.",
   },
   {
@@ -2660,6 +2950,7 @@ const GUIDE_CATALOG = [
     pages: 10,
     timeToApply: "About 30 minutes (varies by state)",
     relatedTo: ["qmb", "slmb", "qi"],
+    verified: "January 2026",
     sections: [
       "Choosing the right program: QMB vs. SLMB vs. QI side-by-side",
       "Before you start: state-specific income and asset documentation",
@@ -2670,6 +2961,83 @@ const GUIDE_CATALOG = [
       "Approval timeline: 30–45 day standard, what to do if delayed",
       "How your Social Security check changes after approval",
       "Annual recertification reminders",
+    ],
+    steps: [
+      {
+        title: "Which program fits your income (2026 limits)",
+        body: [
+          "QMB pays your Part B premium AND your Medicare deductibles and 20% coinsurance. Income limit (single): $1,325/mo.",
+          "SLMB pays only your Part B premium. Income limit (single): $1,585/mo.",
+          "QI also pays only Part B premium, but is funded annually and works first-come, first-served. Income limit (single): $1,781/mo.",
+          "Asset limit (all three): $9,660 single / $14,470 couple — does not count your home, one car, or burial funds up to $1,500.",
+          "Application form is the same for all three — your state agency picks the program based on your numbers.",
+        ],
+      },
+      {
+        title: "Before you start: documents to gather",
+        body: [
+          "Most state Medicaid portals require documents to be uploaded as PDFs or photos. Have ready:",
+          "Last 3 months of pay stubs or Social Security award letter, last 3 months of every bank/brokerage statement, mortgage or rent statement, photo ID, Medicare card, current Part D card.",
+        ],
+      },
+      {
+        title: "Step 1 — Find {{stateName}}'s Medicaid agency portal",
+        body: [
+          "Each state has its own portal. {{stateMspGuidance}}",
+          "Some states require you to first create an account; others let you start the application without one. Either way, set the account up — it's where you'll upload documents and check status.",
+        ],
+        fields: [
+          { label: "Application portal", value: "{{mspApplyUrl}}" },
+        ],
+      },
+      {
+        title: "Step 2 — Personal and Medicare information",
+        body: [
+          "Most state forms reuse the same blocks of fields, in roughly this order.",
+        ],
+        fields: [
+          { label: "Full legal name, SSN, date of birth", value: "{{birthDate}}", note: "Must match Social Security records." },
+          { label: "Medicare claim number (HICN/MBI)", note: "From the front of your red-white-blue Medicare card." },
+          { label: "Medicare effective date", note: "Also on your Medicare card — the date Part A or Part B started." },
+          { label: "Address (must be in {{stateName}})", note: "Most MSP programs require state residency." },
+          { label: "Marital status and spouse details", value: "{{maritalLabel}}", note: "If married, your spouse's income and assets are counted with yours unless you live separately." },
+        ],
+      },
+      {
+        title: "Step 3 — Income and resources",
+        body: [
+          "States verify income against payroll and SSA databases — round numbers raise flags. Use exact gross amounts from your most recent statements.",
+        ],
+        fields: [
+          { label: "Gross monthly income (all sources)", note: "Same definition as Extra Help: gross before taxes and Medicare deductions." },
+          { label: "Total liquid assets", note: "Checking + savings + brokerage + CDs + IRAs and 401(k)s. Do not include your home or one car." },
+          { label: "Burial fund / life insurance face value", note: "Excluded up to $1,500 each." },
+        ],
+      },
+      {
+        title: "Step 4 — Document upload",
+        body: [
+          "Upload counts as 'received' once the portal confirms successful upload — keep that confirmation page or email.",
+          "Acceptable formats: PDF, JPG, PNG. Photos taken with a phone work as long as the entire page is in frame and text is readable.",
+          "Common rejection reason: bank statements that don't show all pages. Always upload the complete statement, even pages with no transactions.",
+        ],
+      },
+      {
+        title: "Step 5 — Submit and follow up",
+        body: [
+          "After submission you'll get a case number. Save it.",
+          "Standard processing: 30–45 days. {{stateName}} should send a written decision; if you don't hear back in 45 days, call the state agency with your case number.",
+          "If approved, your Part B premium stops being deducted from your Social Security check the month after approval — you'll see the increase on your next deposit.",
+        ],
+      },
+      {
+        title: "After approval: what changes",
+        body: [
+          "QMB: Medicare providers cannot bill you for Medicare deductibles or coinsurance — by federal law. If you get a bill, call the provider and remind them of your QMB status.",
+          "QMB and SLMB also auto-qualify you for full Extra Help (the Part D subsidy). You don't need to apply separately.",
+          "Annual recertification: most states require yearly re-verification. {{stateName}} will mail you a renewal packet ~60 days before your recert date.",
+        ],
+      },
     ],
     sample: "p. 6 — Maryland Medicaid online application, with our example showing the QMB income field filled in correctly.",
   },
@@ -2719,6 +3087,7 @@ const GUIDE_CATALOG = [
     timeToApply: "About 20 minutes",
     relatedTo: ["medicare_enrollment"],
     universal: true,
+    verified: "January 2026",
     sections: [
       "Your enrollment window: how to know when to apply",
       "Step 1 — Creating your my Social Security account",
@@ -2728,6 +3097,131 @@ const GUIDE_CATALOG = [
       "Setting up Medicare Easy Pay for your Part B premium",
       "Late-enrollment penalties: how to avoid them",
       "Coordinating with employer coverage (if applicable)",
+    ],
+    // Field-by-field body content. Personalization tokens like {{stateName}}
+    // and {{iepEnd}} are filled from the user's audit answers at PDF time.
+    steps: [
+      {
+        title: "Before you start: what you'll need on hand",
+        body: [
+          "Block 20 minutes. The application itself takes 10–15 minutes, but you'll need a few documents nearby.",
+          "Gather: Social Security number, current address and phone, your bank account and routing number (for Easy Pay), and — if you're delaying Part B because of employer coverage — your employer's name, address, and the date your coverage started.",
+          "If you've worked outside the U.S. or held a railroad job, also note those dates: SSA asks separately about each.",
+        ],
+      },
+      {
+        title: "Step 1 — Create your my Social Security account at ssa.gov/myaccount",
+        body: [
+          "If you already have a my Social Security account, skip ahead. Otherwise, go to ssa.gov/myaccount and click 'Create an Account'.",
+          "SSA verifies your identity using credit-history questions (prior addresses, mortgage lender, car loan). Have a credit report or recent statements nearby in case you're asked.",
+          "The account uses Login.gov or ID.me as the federal sign-in. Both are free; pick whichever you've used before.",
+        ],
+        fields: [
+          { label: "Email address", note: "Use one you check daily — SSA emails enrollment confirmations here." },
+          { label: "Mobile phone for two-factor", note: "Required for the federal sign-in. A landline works too if you accept voice codes." },
+          { label: "Identity verification", note: "Multi-choice questions about your credit history. If you fail twice, you'll need to verify by mail (adds 7–10 days)." },
+        ],
+      },
+      {
+        title: "Step 2 — Open the Medicare-only application at ssa.gov/medicare/sign-up",
+        body: [
+          "From your my Social Security account, choose 'Apply for Medicare Only' (not 'Apply for Retirement' — that starts Social Security benefits, which is a separate decision).",
+          "The form is split into ~6 short pages. SSA saves your progress, so you can pause and return.",
+        ],
+        fields: [
+          { label: "Are you applying for Medicare only?", value: "Yes", note: "Selecting 'Yes' keeps your Social Security retirement benefit decision separate." },
+          { label: "Do you want Part B?", value: "Yes", note: "Almost everyone should answer yes. The exceptions are people with active 20+-employee employer coverage who want to delay. See the employer-coverage step." },
+          { label: "Date you want coverage to start", value: "{{partBStartLabel}}", note: "If you're in your IEP, the earliest start date is the first day of your birth month. Pick that unless you have employer coverage you're keeping." },
+          { label: "Have you ever filed for Medicare before?", value: "No (typical)", note: "Yes only if you previously applied and were denied or withdrew." },
+        ],
+      },
+      {
+        title: "Step 3 — Personal information",
+        body: [
+          "This page collects identifying details. Use the legal name on your Social Security card — not a nickname or married name unless you've updated it with SSA.",
+        ],
+        fields: [
+          { label: "Full legal name", note: "Must match your Social Security card exactly. If your card is wrong, fix it at SSA before applying." },
+          { label: "Social Security number", note: "Nine digits, no dashes." },
+          { label: "Date of birth", value: "{{birthDate}}", note: "Month, day, year." },
+          { label: "Place of birth (city, state, country)", note: "Country is required even if it's the U.S." },
+          { label: "U.S. citizen?", note: "If no, SSA asks for your immigration status and the date you entered the U.S." },
+          { label: "Mailing address", note: "Where your Medicare card and welcome packet will be sent. Use the address that appears on your IRS records to avoid identity-verification flags." },
+          { label: "Phone number", note: "SSA may call to clarify answers. Use a number you actually answer." },
+        ],
+      },
+      {
+        title: "Step 4 — Work history and Medicare-qualifying coverage",
+        body: [
+          "SSA confirms you have enough work credits for premium-free Part A (typically 40 quarters / 10 years of Medicare-taxed work). If you don't, you can still buy Part A — but most people qualify automatically.",
+          "If your spouse has 40 quarters and you don't, you can qualify on their record. SSA asks about this here.",
+        ],
+        fields: [
+          { label: "Have you worked in U.S. employment for at least 10 years?", note: "Yes if you have ~40 quarters of Medicare-taxed work. Self-employment counts." },
+          { label: "Are you currently working?", note: "Drives the next page about employer coverage." },
+          { label: "Have you ever worked outside the U.S.?", note: "Affects totalization with foreign social-security systems. Most U.S.-only workers answer no." },
+          { label: "Have you ever worked for a railroad?", note: "Railroad workers enroll through the Railroad Retirement Board, not SSA. If yes, SSA will redirect you." },
+          { label: "Spouse's work history (if applying on spouse's record)", note: "Provide spouse's name, SSN, and birth date." },
+        ],
+      },
+      {
+        title: "Step 5 — Employer health coverage (if applicable)",
+        body: [
+          "{{employerCoverageGuidance}}",
+          "If you're delaying Part B because of employer coverage, you'll later need to file Form CMS-L564 with your employer's HR department to document continuous coverage when you do enroll.",
+        ],
+        fields: [
+          { label: "Do you (or your spouse) currently have employer or union health coverage?", value: "{{employerCoverageAnswer}}", note: "Be specific — retiree coverage and COBRA do NOT count as 'active' employment for the Special Enrollment Period." },
+          { label: "Employer name and address", note: "Only if you answered yes. SSA may contact them to verify." },
+          { label: "Date the coverage started", note: "Month and year." },
+          { label: "Is the employer's group size 20 or more employees?", note: "20+ unlocks the Special Enrollment Period and lets you delay Part B without penalty. Under 20, Medicare becomes primary at 65 and delaying Part B is risky." },
+        ],
+      },
+      {
+        title: "Step 6 — Review, sign, and submit",
+        body: [
+          "SSA shows a summary of every answer. Check it carefully — corrections after submission require a phone call to 1-800-772-1213.",
+          "The 'signature' is just typing your full name in the signature box. SSA treats this as a legal signature for the application.",
+          "After submitting, you'll get a confirmation number on screen. Save or print it. SSA also emails confirmation within 24 hours.",
+        ],
+        fields: [
+          { label: "Electronic signature", note: "Type your full legal name exactly as entered earlier." },
+          { label: "Date", note: "Auto-filled to today." },
+          { label: "Confirmation number", note: "Format: a long alphanumeric string. Keep it — you'll need it if anything goes wrong." },
+        ],
+      },
+      {
+        title: "What happens next",
+        body: [
+          "{{nextStepsGuidance}}",
+          "Standard timeline: SSA processes the application within 1–3 weeks. Your red-white-blue Medicare card mails ~3 weeks before your coverage start date.",
+          "If you don't see the card 2 weeks before your start date, call 1-800-MEDICARE (1-800-633-4227) with your confirmation number.",
+          "You'll also receive a 'Welcome to Medicare' packet — keep it. It explains preventive services that are free in your first 12 months.",
+        ],
+      },
+      {
+        title: "Set up Medicare Easy Pay (recommended)",
+        body: [
+          "Part B premiums are deducted automatically from your Social Security check if you're drawing benefits. If you're not, SSA bills you quarterly — late payment can cause coverage to lapse.",
+          "Medicare Easy Pay is the auto-debit alternative. Sign up at medicare.gov/medicareeasypay or by mailing Form SF-5510.",
+          "Premium for 2026: roughly $190/month for most people; higher for IRMAA-tier incomes.",
+        ],
+        fields: [
+          { label: "Bank routing number", note: "Nine digits, bottom-left of your check." },
+          { label: "Bank account number", note: "Bottom of your check, after the routing number." },
+          { label: "Account type", note: "Checking or savings." },
+          { label: "Authorization signature", note: "Required on Form SF-5510 (paper) or e-signature on the website." },
+        ],
+      },
+      {
+        title: "Avoiding Part B and Part D late penalties",
+        body: [
+          "Part B late penalty: 10% added to your monthly premium for every full 12 months you delayed enrolling, for life.",
+          "Part D late penalty: 1% of the national base premium added per month without creditable drug coverage, for life.",
+          "Both penalties are waived if you had qualifying employer coverage during the gap and use the Special Enrollment Period (8 months from the date employer coverage ends).",
+          "If you missed your IEP and don't qualify for an SEP, the General Enrollment Period (Jan 1 – Mar 31) is your next chance. Coverage starts the month after enrollment.",
+        ],
+      },
     ],
     sample: "p. 4 — The Medicare application screen showing where most people accidentally decline Part B (and how to fix it if you did).",
   },
@@ -2822,11 +3316,66 @@ function recommendedGuides(answers) {
 
 // ── PDF generator (client-side, no dependencies) ────────────────────────
 // Builds a real, openable PDF 1.4 document from a guide structure.
-// This is a minimal pure-text PDF — production would use a richer library
-// like pdf-lib or jsPDF for screenshots, fonts, layouts. But this proves
-// out the download flow and produces valid, viewable PDF files.
+// Supports multi-page output and renders rich step content (body + fields)
+// with personalization tokens filled from the user's audit answers.
+// Production should swap in pdf-lib/jsPDF for screenshots, fonts, layouts.
 
-function buildPdfBytes(guide, buyerName, buyerEmail) {
+// Resolve personalization tokens like {{stateName}} from the user's answers.
+function buildPersonalizationContext(answers) {
+  const a = answers || {};
+  const stateData = getStateData(a.state);
+  const stateName = stateData ? stateData.name : "your state";
+  const iep = getIEPWindow(a);
+  const by = Number(a.birth_year);
+  const bm = Number(a.birth_month);
+  const birthDate = (by && bm) ? `${MONTHS[bm - 1]} ${by}` : "your birth date";
+  const maritalLabel = a.marital === "couple" ? "married couple" : "single";
+
+  let employerCoverageGuidance = "Your employer-coverage situation determines whether you need Part B now.";
+  let employerCoverageAnswer = "";
+  if (a.employer_coverage === "yes_large") {
+    employerCoverageGuidance = "You have active 20+-employee employer coverage. You can delay Part B without penalty and use a Special Enrollment Period (8 months) when that coverage ends. Form CMS-L564 documents this for SSA.";
+    employerCoverageAnswer = "Yes — 20+ employees";
+  } else if (a.employer_coverage === "yes_small") {
+    employerCoverageGuidance = "You have small-employer coverage (<20 employees). Medicare becomes the primary payer at 65 — your employer plan may pay only what Medicare would have paid. Most people in this situation should enroll in Part B during their IEP.";
+    employerCoverageAnswer = "Yes — under 20 employees";
+  } else if (a.employer_coverage === "no") {
+    employerCoverageGuidance = "You don't have employer coverage. Plan to enroll in both Part A and Part B during your IEP — there's no SEP fallback if you delay.";
+    employerCoverageAnswer = "No";
+  }
+
+  let nextStepsGuidance = "Your Medicare card will arrive in about 3 weeks.";
+  if (iep) {
+    nextStepsGuidance = `Coverage starts ${iep.partBStartLabel}. Your red-white-blue Medicare card arrives ~3 weeks before that date.`;
+  }
+
+  let stateMspGuidance = `${stateName}'s Medicaid agency is your starting point.`;
+  if (stateData && stateData.mspApplyUrl) {
+    stateMspGuidance = `Apply at ${stateData.mspApplyUrl}. ${stateName}'s Medicaid agency processes the application.`;
+  }
+
+  return {
+    stateName,
+    birthDate,
+    maritalLabel,
+    partBStartLabel: iep ? iep.partBStartLabel : "the first day of your birth month",
+    iepStart: iep ? iep.startLabel : "3 months before your 65th birthday",
+    iepEnd: iep ? iep.endLabel : "3 months after your 65th birthday",
+    mspApplyUrl: stateData && stateData.mspApplyUrl ? stateData.mspApplyUrl : "your state Medicaid portal",
+    stateMspGuidance,
+    employerCoverageGuidance,
+    employerCoverageAnswer,
+    nextStepsGuidance,
+  };
+}
+
+function fillTokens(text, ctx) {
+  if (!text) return text;
+  return String(text).replace(/\{\{(\w+)\}\}/g, (_, key) => (ctx[key] !== undefined ? ctx[key] : `{{${key}}}`));
+}
+
+function buildPdfBytes(guide, buyerName, buyerEmail, answers) {
+  const ctx = buildPersonalizationContext(answers);
   const lines = [];
 
   // Title page
@@ -2834,7 +3383,8 @@ function buildPdfBytes(guide, buyerName, buyerEmail) {
   lines.push({ size: 11, italic: true, text: "A Cairn Step-by-Step Guide", spaceAfter: 18 });
   lines.push({ size: 12, text: guide.blurb, spaceAfter: 24 });
   lines.push({ size: 10, text: `${guide.pages} pages | ${guide.timeToApply}`, spaceAfter: 8 });
-  lines.push({ size: 10, italic: true, text: `Personalized for ${buyerName || "You"} | ${buyerEmail || ""}`, spaceAfter: 30 });
+  lines.push({ size: 10, italic: true, text: `Personalized for ${buyerName || "You"} | ${buyerEmail || ""}`, spaceAfter: 8 });
+  if (guide.verified) lines.push({ size: 9, italic: true, text: `Last verified: ${guide.verified}`, spaceAfter: 22 });
 
   // What's inside
   lines.push({ size: 14, bold: true, text: "What's inside", spaceAfter: 10 });
@@ -2843,73 +3393,130 @@ function buildPdfBytes(guide, buyerName, buyerEmail) {
   });
   lines.push({ size: 0, text: "", spaceAfter: 18 });
 
-  // Sample preview
+  // Detailed steps (if the guide has them — body + field-by-field)
+  if (Array.isArray(guide.steps) && guide.steps.length > 0) {
+    lines.push({ pageBreak: true });
+    lines.push({ size: 16, bold: true, text: "Step-by-step walkthrough", spaceAfter: 12 });
+    guide.steps.forEach((s, i) => {
+      lines.push({ size: 13, bold: true, text: `${i + 1}. ${fillTokens(s.title, ctx)}`, spaceAfter: 6 });
+      if (Array.isArray(s.body)) {
+        s.body.forEach(b => {
+          lines.push({ size: 11, text: fillTokens(b, ctx), spaceAfter: 6 });
+        });
+      }
+      if (Array.isArray(s.fields) && s.fields.length > 0) {
+        lines.push({ size: 11, italic: true, text: "Fields on this screen:", spaceAfter: 4 });
+        s.fields.forEach(f => {
+          const label = fillTokens(f.label, ctx);
+          const value = f.value ? ` — ${fillTokens(f.value, ctx)}` : "";
+          lines.push({ size: 11, bold: true, text: `  • ${label}${value}`, spaceAfter: 2 });
+          if (f.note) lines.push({ size: 10, italic: true, text: `    ${fillTokens(f.note, ctx)}`, spaceAfter: 4 });
+        });
+      }
+      lines.push({ size: 0, text: "", spaceAfter: 12 });
+    });
+  }
+
+  // Sample preview (kept for parity with the storefront preview text)
   lines.push({ size: 12, bold: true, text: "Sample preview", spaceAfter: 6 });
   lines.push({ size: 10, italic: true, text: guide.sample, spaceAfter: 18 });
 
   // Footer note
-  lines.push({ size: 9, italic: true, text: "(This is a Cairn prototype guide preview. The production version contains annotated screenshots, large 14pt body type, and walks through each application screen-by-screen.)", spaceAfter: 12 });
+  lines.push({ size: 9, italic: true, text: "(This Cairn guide is a starting point. Government portals change frequently — verify each screen against what you actually see and trust the live form over this PDF if they disagree.)", spaceAfter: 12 });
   lines.push({ size: 9, text: "Updated annually | Free updates for 12 months from purchase", spaceAfter: 4 });
   lines.push({ size: 9, text: "(c) 2026 Cairn | Not affiliated with or endorsed by Medicare or any government agency." });
 
-  // Build PDF content stream
-  let y = 760;
+  // Render lines into one or more page streams.
+  const PAGE_TOP = 760;
+  const PAGE_BOTTOM = 60;
+  const pageStreams = [];
   let stream = "BT\n";
+  let y = PAGE_TOP;
+  const startNewPage = () => {
+    stream += "ET\n";
+    pageStreams.push(stream);
+    stream = "BT\n";
+    y = PAGE_TOP;
+  };
+
   for (const line of lines) {
-    if (!line.text) { y -= (line.spaceAfter || 12); continue; }
+    if (line.pageBreak) { startNewPage(); continue; }
+    if (line.text === "" || line.text == null) { y -= (line.spaceAfter || 12); continue; }
     const fontKey = line.bold ? "/F2" : line.italic ? "/F3" : "/F1";
     const fontSize = line.size || 11;
-    // Wrap long lines crudely (approx chars per line based on size)
-    const charsPerLine = Math.max(20, Math.floor(550 / (fontSize * 0.55)));
-    const words = line.text.split(" ");
-    let curLine = "";
+    const charsPerLine = Math.max(20, Math.floor(540 / (fontSize * 0.55)));
+    const paragraphs = String(line.text).split("\n");
     const wrapped = [];
-    for (const w of words) {
-      if ((curLine + " " + w).length > charsPerLine) {
-        wrapped.push(curLine);
-        curLine = w;
-      } else {
-        curLine = curLine ? curLine + " " + w : w;
+    for (const p of paragraphs) {
+      const words = p.split(" ");
+      let curLine = "";
+      for (const w of words) {
+        if ((curLine + " " + w).length > charsPerLine) {
+          wrapped.push(curLine);
+          curLine = w;
+        } else {
+          curLine = curLine ? curLine + " " + w : w;
+        }
       }
+      if (curLine) wrapped.push(curLine);
     }
-    if (curLine) wrapped.push(curLine);
 
     for (const wl of wrapped) {
+      if (y < PAGE_BOTTOM) startNewPage();
       const escaped = wl.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
       stream += `${fontKey} ${fontSize} Tf\n`;
       stream += `1 0 0 1 60 ${y} Tm\n`;
       stream += `(${escaped}) Tj\n`;
       y -= fontSize * 1.4;
-      if (y < 60) break;
     }
     y -= (line.spaceAfter || 4);
   }
   stream += "ET\n";
+  pageStreams.push(stream);
 
-  const streamBytes = new TextEncoder().encode(stream);
-
-  // Assemble PDF (PDF 1.4)
+  // Assemble PDF (PDF 1.4) — multi-page.
+  // Object layout: 1=Catalog, 2=Pages, then for each page: PageObj + ContentObj.
+  // Then 3 font objects at the end.
   let pdf = "%PDF-1.4\n";
   const offsets = [];
   function addObj(s) { offsets.push(pdf.length); pdf += s; }
+  const numPages = pageStreams.length;
+  const pageObjStartId = 3; // page objects start at object id 3
+  const contentObjStartId = pageObjStartId + numPages;
+  const fontF1Id = contentObjStartId + numPages;
+  const fontF2Id = fontF1Id + 1;
+  const fontF3Id = fontF2Id + 1;
+
   addObj("1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n");
-  addObj("2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n");
-  addObj("3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R /F2 6 0 R /F3 7 0 R >> >> >>\nendobj\n");
-  addObj(`4 0 obj\n<< /Length ${streamBytes.length} >>\nstream\n${stream}endstream\nendobj\n`);
-  addObj("5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n");
-  addObj("6 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>\nendobj\n");
-  addObj("7 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Oblique >>\nendobj\n");
+  const kidsList = Array.from({ length: numPages }, (_, i) => `${pageObjStartId + i} 0 R`).join(" ");
+  addObj(`2 0 obj\n<< /Type /Pages /Kids [${kidsList}] /Count ${numPages} >>\nendobj\n`);
+  for (let i = 0; i < numPages; i++) {
+    const pageId = pageObjStartId + i;
+    const contentId = contentObjStartId + i;
+    addObj(`${pageId} 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents ${contentId} 0 R /Resources << /Font << /F1 ${fontF1Id} 0 R /F2 ${fontF2Id} 0 R /F3 ${fontF3Id} 0 R >> >> >>\nendobj\n`);
+  }
+  for (let i = 0; i < numPages; i++) {
+    const contentId = contentObjStartId + i;
+    const s = pageStreams[i];
+    const sBytes = new TextEncoder().encode(s);
+    addObj(`${contentId} 0 obj\n<< /Length ${sBytes.length} >>\nstream\n${s}endstream\nendobj\n`);
+  }
+  addObj(`${fontF1Id} 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n`);
+  addObj(`${fontF2Id} 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>\nendobj\n`);
+  addObj(`${fontF3Id} 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Oblique >>\nendobj\n`);
+
   const xrefOffset = pdf.length;
-  pdf += `xref\n0 8\n0000000000 65535 f \n`;
+  const totalObjs = offsets.length + 1; // +1 for the free entry
+  pdf += `xref\n0 ${totalObjs}\n0000000000 65535 f \n`;
   for (const o of offsets) pdf += String(o).padStart(10, "0") + " 00000 n \n";
-  pdf += `trailer\n<< /Size 8 /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
+  pdf += `trailer\n<< /Size ${totalObjs} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
 
   return new TextEncoder().encode(pdf);
 }
 
-function downloadPdf(guide, buyerName, buyerEmail) {
+function downloadPdf(guide, buyerName, buyerEmail, answers) {
   try {
-    const bytes = buildPdfBytes(guide, buyerName, buyerEmail);
+    const bytes = buildPdfBytes(guide, buyerName, buyerEmail, answers);
     // Convert bytes to base64 for a data URL (iOS-safe inside sandboxed iframes)
     let binary = "";
     for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
@@ -3027,7 +3634,7 @@ function GuideStore({ answers, onBack, onRestart }) {
                         <span style={{ color: C.ink, fontWeight: 500 }}>{g.name}</span>
                       </div>
                       <button
-                        onClick={() => downloadPdf(g, contact.name, contact.email)}
+                        onClick={() => downloadPdf(g, contact.name, contact.email, answers)}
                         style={{
                           display: "inline-flex", alignItems: "center", gap: "0.4rem",
                           background: C.accent, color: "#fff",
