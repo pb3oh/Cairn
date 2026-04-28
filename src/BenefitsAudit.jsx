@@ -2222,7 +2222,7 @@ function ProgramFlipCards() {
   };
 
   return (
-    <>
+    <div>
       <p style={{ fontSize: "0.82rem", color: C.faint, fontStyle: "italic", marginBottom: "0.85rem", display: "flex", alignItems: "center", gap: "0.35rem" }}>
         <Sparkles size={11} /> Tap any program to flip it and learn what it actually does
       </p>
@@ -2301,7 +2301,7 @@ function ProgramFlipCards() {
           );
         })}
       </div>
-    </>
+    </div>
   );
 }
 
