@@ -640,12 +640,12 @@ const QUESTIONS = [
 //   5. Commit & deploy. The "Coming soon" section appears automatically
 //      once ENDPOINT is non-empty.
 const GUIDE_REQUEST_FORM = {
-  endpoint: "", // leave empty to hide the section entirely
+  endpoint: "https://docs.google.com/forms/d/e/1FAIpQLSfgFqmtuivok_hyAd3GNh5H-pz3vuUNki-7dVcz6yYHeBFXVg/formResponse",
   fields: {
-    email: "entry.0000000000",
-    program: "entry.0000000001",
-    state: "entry.0000000002",
-    context: "entry.0000000003",
+    email: "entry.958551765",
+    program: "entry.1819017069",
+    state: "entry.1013878268",
+    context: "entry.1489871811",
   },
 };
 
