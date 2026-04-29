@@ -520,8 +520,50 @@ function getStateData(stateCode) {
   };
 }
 
+// ── Date / age helpers ────────────────────────────────────────────────
+// We collect birth month + year (not full DOB) so we can render hard
+// IEP boundary dates without storing a more sensitive full date of birth.
+
+const MONTHS = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
+
+function getAge(a) {
+  // Prefer derived age from birth_year/birth_month; fall back to legacy age field.
+  const by = Number(a && a.birth_year);
+  const bm = Number(a && a.birth_month); // 1–12
+  if (!by || by < 1900 || by > 2100) return Number((a && a.age) || 0) || 0;
+  const now = new Date();
+  let age = now.getFullYear() - by;
+  if (bm && (now.getMonth() + 1 < bm)) age -= 1;
+  return age;
+}
+
+// IEP = 3 months before birth month through 3 months after = 7-month window.
+// Coverage starts the first day of the birth month for most enrollees.
+function getIEPWindow(a) {
+  const by = Number(a && a.birth_year);
+  const bm = Number(a && a.birth_month);
+  if (!by || !bm) return null;
+  const sixtyFifth = new Date(by + 65, bm - 1, 1);
+  const start = new Date(sixtyFifth); start.setMonth(start.getMonth() - 3);
+  const end = new Date(sixtyFifth);   end.setMonth(end.getMonth() + 3);
+  // End on the last day of that month
+  end.setMonth(end.getMonth() + 1); end.setDate(0);
+  const fmt = (d) => `${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
+  const fmtFull = (d) => `${MONTHS[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
+  return {
+    start, end, sixtyFifth,
+    startLabel: fmt(start),
+    endLabel: fmtFull(end),
+    partBStartLabel: fmt(sixtyFifth),
+  };
+}
+
 const QUESTIONS = [
-  { id: "age", section: "About you", question: "How old are you?", helper: "We use this to check Medicare and senior-program eligibility.", type: "number", min: 50, max: 110, placeholder: "e.g., 67" },
+  { id: "birth_month", section: "About you", question: "What month were you born?", helper: "We use this to figure out your Medicare enrollment window — and to flag any deadlines coming up.", type: "choice", options: MONTHS.map((m, i) => ({ value: String(i + 1), label: m })) },
+  { id: "birth_year", section: "About you", question: "What year were you born?", helper: "Combined with your birth month, this lets us calculate your Initial Enrollment Period dates.", type: "number", min: 1915, max: 1975, placeholder: "e.g., 1958" },
   { id: "marital", section: "About you", question: "What's your household situation?", type: "choice", options: [{ value: "single", label: "Just me" }, { value: "couple", label: "Me and a spouse" }] },
   { id: "state", section: "About you", question: "Which state do you live in?", helper: "Eligibility thresholds and state-specific programs vary. We'll customize your results.", type: "choice", options: [
     { value: "AL", label: "Alabama" }, { value: "AK", label: "Alaska" }, { value: "AZ", label: "Arizona" }, { value: "AR", label: "Arkansas" },
@@ -540,6 +582,12 @@ const QUESTIONS = [
   ] },
   { id: "zip", section: "About you", question: "What's your ZIP code?", helper: "Some senior tax credits and waiver programs are county-specific. We'll surface what applies where you live.", type: "zip", placeholder: "e.g., 21403" },
   { id: "medicare_status", section: "Medicare", question: "Where are you with Medicare today?", type: "choice", options: [{ value: "not_yet", label: "Not enrolled yet" }, { value: "ab_only", label: "I have Original Medicare (Parts A and B)" }, { value: "advantage", label: "I'm on a Medicare Advantage plan" }, { value: "medigap", label: "I have Original Medicare plus a Medigap policy" }] },
+  // Pre-enrollment questions: only shown to users not yet enrolled. These drive
+  // the auto-enroll vs. active-enroll messaging, the Special Enrollment Period
+  // logic, and the Part D late-penalty risk calculation.
+  { id: "drawing_ss", section: "Medicare", question: "Are you already drawing Social Security retirement benefits?", helper: "If yes, you'll be auto-enrolled in Medicare Parts A and B. If no, you'll need to actively sign up at ssa.gov.", type: "choice", showIf: (a) => a.medicare_status === "not_yet", options: [{ value: "yes", label: "Yes, already collecting" }, { value: "no", label: "No, not yet" }] },
+  { id: "employer_coverage", section: "Medicare", question: "Are you (or your spouse) still working with employer health coverage?", helper: "Active employer coverage from a 20+-employee company can let you delay Part B without a late penalty — and gives you a Special Enrollment Period later.", type: "choice", showIf: (a) => a.medicare_status === "not_yet", options: [{ value: "yes_large", label: "Yes — employer has 20+ employees" }, { value: "yes_small", label: "Yes — but employer has fewer than 20 employees" }, { value: "no", label: "No employer coverage" }] },
+  { id: "creditable_rx", section: "Medicare", question: "Do you have prescription drug coverage today?", helper: "If your current drug coverage is 'creditable' (at least as good as Medicare Part D), you can delay Part D without a late penalty.", type: "choice", showIf: (a) => a.medicare_status === "not_yet", options: [{ value: "yes_creditable", label: "Yes — and I've confirmed it's 'creditable'" }, { value: "yes_unknown", label: "Yes — but I'm not sure if it's creditable" }, { value: "no", label: "No drug coverage" }] },
   { id: "income", section: "Finances", question: "What's your gross monthly household income?", helper: "Include Social Security, pensions, wages, IRA distributions, rental income — before taxes.", type: "number", min: 0, max: 100000, placeholder: "e.g., 3200", prefix: "$" },
   { id: "assets", section: "Finances", question: "Roughly, what are your liquid assets?", helper: "Checking, savings, brokerage, IRAs, 401(k)s. Don't include your home or one car.", type: "choice", options: [{ value: "low", label: "Under $10,000" }, { value: "mid_low", label: "$10,000 – $35,000" }, { value: "mid", label: "$35,000 – $150,000" }, { value: "high", label: "Over $150,000" }] },
   { id: "homeowner", section: "Finances", question: "Do you own your primary residence?", type: "choice", options: [{ value: "yes", label: "Yes, I own" }, { value: "no", label: "No, I rent" }] },
@@ -553,7 +601,7 @@ function evaluate(answers) {
   const isCouple = answers.marital === "couple";
   const hh = isCouple ? 2 : 1;
   const income = Number(answers.income) || 0;
-  const ageNum = Number(answers.age) || 0;
+  const ageNum = getAge(answers);
   const annualIncome = income * 12;
   const fplAnnual = FPL_2026[hh];
   const assetTier = answers.assets;
@@ -686,7 +734,7 @@ function evaluate(answers) {
 // answers so far. The user is free to override, but the suggestion saves
 // most users a tap and ensures the recommendation engine has good defaults.
 function suggestPriority(a) {
-  const ageNum = Number(a.age) || 0;
+  const ageNum = getAge(a);
   const income = Number(a.income) || 0;
   const annualIncome = income * 12;
   const assets = a.assets;
@@ -710,7 +758,7 @@ function suggestPriority(a) {
 }
 
 function recommendMedicarePath(a, stateData) {
-  const status = a.medicare_status, priority = a.priority, rx = a.rx, assets = a.assets, age = Number(a.age) || 0;
+  const status = a.medicare_status, priority = a.priority, rx = a.rx, assets = a.assets, age = getAge(a);
   const carriers = stateData ? stateData.medigapCarriers : NATIONAL_CARRIERS;
   const stateName = stateData ? stateData.name : "your state";
   const shipUrl = stateData && stateData.shipUrl ? stateData.shipUrl : "https://www.shiphelp.org/";
@@ -720,8 +768,149 @@ function recommendMedicarePath(a, stateData) {
   const hasMedigap = status === "medigap";
   const onAdvantage = status === "advantage";
 
-  if (status === "not_yet" && age < 65) {
-    const yearsOut = 65 - age;
+  if (status === "not_yet") {
+    const drawingSS = a.drawing_ss === "yes";
+    const employerLarge = a.employer_coverage === "yes_large";
+    const employerSmall = a.employer_coverage === "yes_small";
+    const creditableRx = a.creditable_rx === "yes_creditable";
+    const noRx = a.creditable_rx === "no";
+    const iep = getIEPWindow(a);
+
+    // Late enrollment: past 65, never signed up. Penalty math and SEP rules dominate.
+    if (age >= 66) {
+      const monthsLate = Math.max(0, (age - 65) * 12);
+      const penaltyPct = Math.floor(monthsLate / 12) * 10; // 10% per full 12-month delay, lifetime
+      const hasSEP = employerLarge; // 8-month SEP after employer coverage ends
+      const points = [
+        hasSEP
+          ? "Active employer coverage from a 20+-employee company gives you a Special Enrollment Period — you can enroll without a Part B late penalty for up to 8 months after that coverage ends."
+          : `You're past 65 without Medicare and without qualifying employer coverage. Each full 12 months you've delayed adds a permanent 10% to your Part B premium — currently roughly ${penaltyPct}% extra for life.`,
+        noRx
+          ? "You've also gone without creditable drug coverage. Part D adds a separate 1%-per-month lifetime late-enrollment penalty."
+          : creditableRx
+            ? "Your existing creditable drug coverage protects you from the Part D late-enrollment penalty as long as you don't go more than 63 days without it after enrolling."
+            : "Confirm whether your current drug coverage is 'creditable' — your insurer must send you a notice each fall. Non-creditable coverage triggers the Part D late penalty.",
+        "General Enrollment runs January 1 – March 31 each year, with coverage starting the month after enrollment.",
+      ];
+      return {
+        title: hasSEP ? "You qualify for a Special Enrollment Period" : "Late Medicare enrollment — act this General Enrollment",
+        summary: hasSEP
+          ? "Active large-employer coverage protects you from the Part B late penalty. Use your 8-month SEP when that coverage ends."
+          : `You're approximately ${monthsLate} months past your Initial Enrollment Period. Enrolling at the next General Enrollment locks in the penalty at its current level — every additional year delays it 10% higher.`,
+        points,
+        enrollmentSteps: [
+          {
+            n: 1,
+            title: hasSEP ? "Complete CMS-L564 with your employer" : "File at ssa.gov during General Enrollment (Jan 1 – Mar 31)",
+            why: hasSEP
+              ? "Form CMS-L564 documents your continuous active-employer coverage and unlocks the SEP. Your HR department fills out Section B; you mail it to SSA with your enrollment application."
+              : "Coverage starts the month after you enroll. SSA processes General Enrollment applications in the order received — earlier in the window means earlier coverage.",
+            link: hasSEP
+              ? { label: "Form CMS-L564 (Employment Coverage)", url: "https://www.cms.gov/medicare/forms-notices/cms-forms/cms-forms-list" }
+              : { label: "Sign up for Medicare at SSA", url: "https://www.ssa.gov/medicare/sign-up" },
+          },
+          {
+            n: 2,
+            title: "Choose Part D or Medicare Advantage",
+            why: noRx
+              ? "Without creditable coverage you've also accumulated a Part D late penalty. Enroll during the same window — there's no advantage to waiting longer."
+              : "You can pick a standalone Part D plan (with Original Medicare + Medigap) or a Medicare Advantage plan that includes drug coverage.",
+            link: { label: "Compare plans on Plan Finder", url: "https://www.medicare.gov/plan-compare/" },
+          },
+          {
+            n: 3,
+            title: hasSEP ? "Apply for Medigap during your guaranteed-issue window" : "Apply for Medigap during your one-time guaranteed-issue window",
+            why: "Your Medigap guaranteed-issue rights last 6 months from the date Part B starts. Outside that window, most carriers can deny coverage or raise rates based on health.",
+            showCarriers: true,
+          },
+          {
+            n: 4,
+            title: `Get free help from ${stateName} SHIP`,
+            why: `Late-enrollment cases benefit most from one-on-one counseling — SHIP counselors can help you appeal a penalty if you have an Equitable Relief case (e.g., wrong information from a federal employee).`,
+            link: { label: `${stateName} SHIP counseling`, url: shipUrl },
+          },
+        ],
+        carriers: carriers,
+        stateName: stateName,
+        medigapNote: stateData ? stateData.medigapNote : null,
+      };
+    }
+
+    // In the IEP (age 64–65, with hard dates we can render).
+    if (age >= 64 && iep) {
+      const points = [
+        `Your 7-month Initial Enrollment Period runs ${iep.startLabel} through ${iep.endLabel}. Coverage starts ${iep.partBStartLabel} if you enroll during the 4 months before your birth month.`,
+        drawingSS
+          ? "Because you're already drawing Social Security, you'll be auto-enrolled in Parts A and B. Your card arrives ~3 months before your birth month — no action required unless you want to opt out of Part B."
+          : "You're not yet drawing Social Security, so Medicare won't auto-enroll you. You need to actively sign up at ssa.gov.",
+        employerLarge
+          ? "If you have active 20+-employee employer coverage and want to delay Part B, you can — your Special Enrollment Period gives you 8 months after that coverage ends to enroll without penalty. Most people in your situation should still enroll in Part A (it's premium-free)."
+          : employerSmall
+            ? "Your employer coverage is from a small-group plan (<20 employees). Medicare becomes the primary payer at 65, so delaying Part B is risky — your employer plan may pay only what Medicare would have paid."
+            : "Without employer coverage, plan to enroll in both Part A and Part B during this IEP. Missing it triggers a permanent 10% Part B penalty for every 12 months delayed.",
+        creditableRx
+          ? "Your existing drug coverage is creditable, so you can delay Part D without penalty as long as you don't go more than 63 days without coverage after enrolling."
+          : noRx
+            ? "Without drug coverage, enroll in a Part D plan during your IEP to avoid the 1%-per-month lifetime late penalty."
+            : "Verify whether your current drug coverage is 'creditable' — your insurer is required to send you a notice each fall. If not, plan on Part D.",
+      ];
+      const steps = [];
+      if (!drawingSS) {
+        steps.push({
+          n: steps.length + 1,
+          title: "Create your my Social Security account at ssa.gov",
+          why: "You'll need this account to apply for Medicare online. Allow 10 minutes — identity verification uses your prior addresses and employers from credit history.",
+          link: { label: "Create account at SSA", url: "https://www.ssa.gov/myaccount/" },
+        });
+        steps.push({
+          n: steps.length + 1,
+          title: `Apply for Medicare A and B by ${iep.endLabel}`,
+          why: `Your IEP ends ${iep.endLabel}. Apply at least 1 month before your birth month for coverage starting ${iep.partBStartLabel}.`,
+          link: { label: "Sign up for Medicare", url: "https://www.ssa.gov/medicare/sign-up" },
+        });
+      } else {
+        steps.push({
+          n: steps.length + 1,
+          title: "Watch for your Medicare card in the mail",
+          why: `Because you're drawing Social Security, A and B auto-enroll. Your card arrives roughly 3 months before ${iep.partBStartLabel}. If you want to decline Part B (almost no one should), follow the instructions on the card.`,
+          link: { label: "What your Medicare card looks like", url: "https://www.medicare.gov/basics/get-started-with-medicare/medicare-basics/medicare-cards" },
+        });
+      }
+      if (!creditableRx) {
+        steps.push({
+          n: steps.length + 1,
+          title: "Choose a Part D drug plan before your IEP closes",
+          why: rx === "many"
+            ? "With your medication load, run your specific drugs through Plan Finder — total annual cost matters more than premium."
+            : "Pick the lowest-premium plan that covers what you take. Re-shop every fall during Open Enrollment.",
+          link: { label: "Compare Part D plans", url: "https://www.medicare.gov/plan-compare/" },
+        });
+      }
+      steps.push({
+        n: steps.length + 1,
+        title: "Apply for Medigap within 6 months of Part B starting",
+        why: `Your guaranteed-issue window runs from ${iep.partBStartLabel} for 6 months. Inside it, no carrier can deny you for health reasons. Outside it, most can.`,
+        showCarriers: true,
+      });
+      steps.push({
+        n: steps.length + 1,
+        title: `Talk to ${stateName} SHIP for free`,
+        why: `${stateName}'s SHIP counselors are unbiased and free — no sales pitch. They'll review your specific options before you enroll.`,
+        link: { label: `${stateName} SHIP counseling`, url: shipUrl },
+      });
+      return {
+        title: `Your Initial Enrollment Period: ${iep.startLabel} – ${iep.endLabel}`,
+        summary: `Coverage starts ${iep.partBStartLabel}. ${drawingSS ? "You'll be auto-enrolled — confirm your card arrives." : "You need to actively sign up at ssa.gov."}`,
+        points,
+        carriers,
+        stateName,
+        medigapNote: stateData ? stateData.medigapNote : null,
+        enrollmentSteps: steps,
+      };
+    }
+
+    // Pre-65 planning runway (still under 64).
+    const yearsOut = Math.max(1, 65 - age);
 
     // Long planning runway (5+ years out): only the IRMAA/Roth point matters now.
     // Everything else is premature and would just create noise.
@@ -940,13 +1129,39 @@ function recommendMedicarePath(a, stateData) {
 
 function generateWatchouts(a) {
   const out = [];
-  const age = Number(a.age) || 0;
+  const age = getAge(a);
+  const iep = getIEPWindow(a);
   if (age >= 64 && age <= 65 && a.medicare_status === "not_yet") {
     out.push({
       level: "high",
-      title: "Initial Enrollment Period is closing",
-      body: "Your 7-month IEP window starts 3 months before your 65th birthday and ends 3 months after. Missing Part B enrollment triggers a 10% permanent penalty for every 12 months you delay.",
-      link: { label: "Sign up for Medicare", url: "https://www.medicare.gov/sign-up-change-plans/how-do-i-get-parts-a-b" },
+      title: iep ? `IEP closes ${iep.endLabel}` : "Initial Enrollment Period is closing",
+      body: iep
+        ? `Your 7-month Initial Enrollment Period runs ${iep.startLabel} through ${iep.endLabel}. ${a.drawing_ss === "yes" ? "Because you're drawing Social Security, you'll auto-enroll — but confirm your card arrives." : "You need to actively sign up at ssa.gov."} Missing Part B triggers a permanent 10% penalty for every 12 months delayed.`
+        : "Your 7-month IEP window starts 3 months before your 65th birthday and ends 3 months after. Missing Part B enrollment triggers a 10% permanent penalty for every 12 months you delay.",
+      link: { label: "Sign up for Medicare", url: "https://www.ssa.gov/medicare/sign-up" },
+    });
+  }
+  if (age >= 66 && a.medicare_status === "not_yet") {
+    const monthsLate = Math.max(0, (age - 65) * 12);
+    const penaltyPct = Math.floor(monthsLate / 12) * 10;
+    const hasSEP = a.employer_coverage === "yes_large";
+    out.push({
+      level: "high",
+      title: hasSEP ? "You qualify for a Special Enrollment Period" : `Late enrollment — Part B penalty is ~${penaltyPct}%`,
+      body: hasSEP
+        ? "Your active 20+-employee employer coverage shields you from the Part B late penalty. When that coverage ends, you have 8 months to enroll without penalty using Form CMS-L564."
+        : `You're roughly ${monthsLate} months past your IEP. The next chance to enroll is the General Enrollment Period (Jan 1 – Mar 31). The penalty locks in at ~${penaltyPct}% — every additional 12-month delay adds another 10% for life.`,
+      link: hasSEP
+        ? { label: "Form CMS-L564", url: "https://www.cms.gov/medicare/forms-notices/cms-forms/cms-forms-list" }
+        : { label: "General Enrollment overview", url: "https://www.medicare.gov/basics/get-started-with-medicare/sign-up-for-medicare/when-does-medicare-coverage-start" },
+    });
+  }
+  if (a.medicare_status === "not_yet" && a.creditable_rx === "no" && age >= 64) {
+    out.push({
+      level: "high",
+      title: "Part D late penalty is accruing",
+      body: "Without creditable drug coverage, every month past your IEP without Part D adds 1% to your Part D premium for life. Even if you take no medications now, enrolling in the cheapest plan you can find avoids the penalty.",
+      link: { label: "Compare Part D plans", url: "https://www.medicare.gov/plan-compare/" },
     });
   }
   if (a.medicare_status === "advantage") {
@@ -1337,13 +1552,13 @@ function Landing({ onStart }) {
             <SectionLabel>How it works</SectionLabel>
             <h2 style={{ fontFamily: "'Newsreader', serif", fontSize: "clamp(2rem, 4.5vw, 3rem)", lineHeight: 1.1, fontWeight: 500, letterSpacing: "-0.02em", maxWidth: "640px", margin: "0 auto", color: C.ink }}>
               Honest answers to{" "}
-              <span style={{ fontStyle: "italic", color: C.accent }}>twelve simple questions</span>{" "}
+              <span style={{ fontStyle: "italic", color: C.accent }}>a dozen plain questions</span>{" "}
               are all we need.
             </h2>
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: "1.5rem" }}>
             {[
-              { num: "01", title: "Tell us about you", body: "Twelve plain-English questions about your age, household, income, and Medicare status. No name, address, or SSN." },
+              { num: "01", title: "Tell us about you", body: "A dozen plain-English questions about your birth date, household, income, and Medicare status. No name, address, or SSN." },
               { num: "02", title: "We run the math", body: "Our engine checks your inputs against 14+ federal, state, and county programs — including thresholds most brokers don't track." },
               { num: "03", title: "Get a personal report", body: "A ranked list of programs with dollar values, application links, and a Medicare path tailored to your priorities." },
             ].map((s, i) => (
@@ -1786,9 +2001,16 @@ function WatchoutCard({ w, defaultOpen = false }) {
 }
 
 function Audit({ step, setStep, answers, setAnswers, onComplete, onExit }) {
-  const totalSteps = QUESTIONS.length;
-  const progress = ((step + 1) / totalSteps) * 100;
-  const currentQ = QUESTIONS[step];
+  // Filter to questions whose showIf predicate (if any) passes against current answers.
+  // This lets pre-enrollment questions appear only for users who say they're not yet on Medicare.
+  const activeQuestions = useMemo(
+    () => QUESTIONS.filter(q => !q.showIf || q.showIf(answers)),
+    [answers]
+  );
+  const totalSteps = activeQuestions.length;
+  const safeStep = Math.min(step, totalSteps - 1);
+  const progress = ((safeStep + 1) / totalSteps) * 100;
+  const currentQ = activeQuestions[safeStep];
   const setAnswer = (val) => setAnswers(prev => ({ ...prev, [currentQ.id]: val }));
   const canAdvance = () => {
     const v = answers[currentQ.id];
@@ -1802,21 +2024,21 @@ function Audit({ step, setStep, answers, setAnswers, onComplete, onExit }) {
     }
     return v !== undefined && v !== "";
   };
-  const next = () => step === totalSteps - 1 ? onComplete() : setStep(step + 1);
-  const back = () => step === 0 ? onExit() : setStep(step - 1);
+  const next = () => safeStep === totalSteps - 1 ? onComplete() : setStep(safeStep + 1);
+  const back = () => safeStep === 0 ? onExit() : setStep(safeStep - 1);
 
   return (
     <div style={{ minHeight: "100vh", padding: "2rem 1.5rem" }}>
       <div style={{ maxWidth: "720px", margin: "0 auto" }}>
         <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "2rem", paddingBottom: "1rem", borderBottom: `1px solid ${C.line}` }}>
           <Wordmark />
-          <span style={{ fontSize: "0.85rem", color: C.faint, fontVariantNumeric: "tabular-nums" }}>{step + 1} / {totalSteps}</span>
+          <span style={{ fontSize: "0.85rem", color: C.faint, fontVariantNumeric: "tabular-nums" }}>{safeStep + 1} / {totalSteps}</span>
         </header>
         <div style={{ height: "2px", background: C.line, marginBottom: "3rem", borderRadius: "2px", overflow: "hidden" }}>
           <div style={{ width: `${progress}%`, height: "100%", background: C.accent, transition: "width 0.4s cubic-bezier(0.4, 0, 0.2, 1)" }} />
         </div>
 
-        <div key={step} className="fade-up">
+        <div key={safeStep} className="fade-up">
           {currentQ.section && <SectionLabel>{currentQ.section}</SectionLabel>}
           <h2 style={{ fontFamily: "'Newsreader', serif", fontSize: "clamp(1.75rem, 4vw, 2.5rem)", lineHeight: 1.15, fontWeight: 500, letterSpacing: "-0.02em", marginBottom: "0.75rem", color: C.ink }}>
             {currentQ.question}
@@ -2641,6 +2863,7 @@ const GUIDE_CATALOG = [
     pages: 8,
     timeToApply: "About 25 minutes",
     relatedTo: ["lis", "qmb", "slmb", "qi"],
+    verified: "January 2026",
     sections: [
       "Before you start: documents you'll need",
       "Step 1 — Open ssa.gov/extrahelp (annotated screenshot)",
@@ -2651,6 +2874,72 @@ const GUIDE_CATALOG = [
       "If denied: how to appeal and what evidence to gather",
       "Annual renewal: how to keep your benefit",
     ],
+    steps: [
+      {
+        title: "Before you start: documents to gather",
+        body: [
+          "Allow 25 minutes. The application is one online form, but you'll be asked for specific dollar amounts that are easier to look up before you start.",
+          "Have ready: most recent Social Security award letter, prior-year tax return (for AGI), most recent bank/brokerage statements, mortgage or rent statement, current Part D plan name and member ID.",
+        ],
+      },
+      {
+        title: "Step 1 — Open ssa.gov/extrahelp",
+        body: [
+          "From a desktop browser, go to ssa.gov/extrahelp and click 'Apply for Extra Help with Medicare Prescription Drug Plan Costs'.",
+          "You can complete the form without a my Social Security account, but signing in with one auto-fills several fields.",
+        ],
+        fields: [
+          { label: "Are you applying for yourself or someone else?", value: "Myself", note: "Pick 'Someone else' only if you have power of attorney or are a legal representative." },
+          { label: "Are you currently enrolled in a Medicare Part D plan?", note: "Yes if you have prescription drug coverage. The form asks for your plan name next." },
+        ],
+      },
+      {
+        title: "Step 2 — Identity and household",
+        body: [
+          "Use the legal name on your Social Security card.",
+        ],
+        fields: [
+          { label: "Full legal name, SSN, date of birth", value: "{{birthDate}}", note: "Must match SSA records exactly." },
+          { label: "Marital status and household size", value: "{{maritalLabel}}", note: "Household = you + your spouse if you live together. Adult children don't count even if they live with you." },
+          { label: "Address", note: "Where SSA will mail your decision letter." },
+        ],
+      },
+      {
+        title: "Step 3 — Income (the page where most mistakes happen)",
+        body: [
+          "Enter your *gross* monthly income — before taxes and Medicare premiums. Include Social Security, pensions, wages, IRA withdrawals, and rental income.",
+          "Do NOT include: SSI, VA benefits, housing assistance, food stamps, or in-kind support from family. SSA explicitly excludes these.",
+        ],
+        fields: [
+          { label: "Gross monthly Social Security", note: "From your most recent SSA-1099 or award letter, before the Medicare Part B deduction." },
+          { label: "Gross monthly pensions / annuities", note: "Sum of all pensions before tax withholding." },
+          { label: "Gross monthly wages", note: "If still working — gross pay, not take-home." },
+          { label: "Other income (interest, dividends, rental)", note: "Monthly average. Use last year's totals divided by 12." },
+        ],
+      },
+      {
+        title: "Step 4 — Resources (what counts, what doesn't)",
+        body: [
+          "Resources = liquid assets. The 2026 limit is $17,600 for an individual or $35,130 for a couple.",
+          "Do NOT count: your primary home, one car, household goods, burial plot, life insurance with face value under $1,500.",
+          "DO count: checking, savings, CDs, brokerage accounts, IRAs, 401(k)s (yes — IRAs count for Extra Help even though they don't for some other programs).",
+        ],
+        fields: [
+          { label: "Total in checking/savings", note: "Combined balance across all accounts." },
+          { label: "Stocks, bonds, mutual funds", note: "Current market value, not what you paid." },
+          { label: "Retirement accounts", note: "IRAs and 401(k)s count even if untouched." },
+          { label: "Real estate other than your home", note: "Rental properties, vacant land — current market value." },
+        ],
+      },
+      {
+        title: "Step 5 — Submit and save confirmation",
+        body: [
+          "After review, type your name as electronic signature. SSA shows a confirmation number on screen and emails one within 24 hours.",
+          "Decision timeline: 1–3 weeks for online applications.",
+          "If approved, the subsidy is automatic — your Part D plan applies it; no further action needed.",
+        ],
+      },
+    ],
     sample: "p. 4 — Resource verification screen, annotated with arrows showing which fields exclude your home and one car.",
   },
   {
@@ -2660,6 +2949,7 @@ const GUIDE_CATALOG = [
     pages: 10,
     timeToApply: "About 30 minutes (varies by state)",
     relatedTo: ["qmb", "slmb", "qi"],
+    verified: "January 2026",
     sections: [
       "Choosing the right program: QMB vs. SLMB vs. QI side-by-side",
       "Before you start: state-specific income and asset documentation",
@@ -2671,6 +2961,83 @@ const GUIDE_CATALOG = [
       "How your Social Security check changes after approval",
       "Annual recertification reminders",
     ],
+    steps: [
+      {
+        title: "Which program fits your income (2026 limits)",
+        body: [
+          "QMB pays your Part B premium AND your Medicare deductibles and 20% coinsurance. Income limit (single): $1,325/mo.",
+          "SLMB pays only your Part B premium. Income limit (single): $1,585/mo.",
+          "QI also pays only Part B premium, but is funded annually and works first-come, first-served. Income limit (single): $1,781/mo.",
+          "Asset limit (all three): $9,660 single / $14,470 couple — does not count your home, one car, or burial funds up to $1,500.",
+          "Application form is the same for all three — your state agency picks the program based on your numbers.",
+        ],
+      },
+      {
+        title: "Before you start: documents to gather",
+        body: [
+          "Most state Medicaid portals require documents to be uploaded as PDFs or photos. Have ready:",
+          "Last 3 months of pay stubs or Social Security award letter, last 3 months of every bank/brokerage statement, mortgage or rent statement, photo ID, Medicare card, current Part D card.",
+        ],
+      },
+      {
+        title: "Step 1 — Find {{stateName}}'s Medicaid agency portal",
+        body: [
+          "Each state has its own portal. {{stateMspGuidance}}",
+          "Some states require you to first create an account; others let you start the application without one. Either way, set the account up — it's where you'll upload documents and check status.",
+        ],
+        fields: [
+          { label: "Application portal", value: "{{mspApplyUrl}}" },
+        ],
+      },
+      {
+        title: "Step 2 — Personal and Medicare information",
+        body: [
+          "Most state forms reuse the same blocks of fields, in roughly this order.",
+        ],
+        fields: [
+          { label: "Full legal name, SSN, date of birth", value: "{{birthDate}}", note: "Must match Social Security records." },
+          { label: "Medicare claim number (HICN/MBI)", note: "From the front of your red-white-blue Medicare card." },
+          { label: "Medicare effective date", note: "Also on your Medicare card — the date Part A or Part B started." },
+          { label: "Address (must be in {{stateName}})", note: "Most MSP programs require state residency." },
+          { label: "Marital status and spouse details", value: "{{maritalLabel}}", note: "If married, your spouse's income and assets are counted with yours unless you live separately." },
+        ],
+      },
+      {
+        title: "Step 3 — Income and resources",
+        body: [
+          "States verify income against payroll and SSA databases — round numbers raise flags. Use exact gross amounts from your most recent statements.",
+        ],
+        fields: [
+          { label: "Gross monthly income (all sources)", note: "Same definition as Extra Help: gross before taxes and Medicare deductions." },
+          { label: "Total liquid assets", note: "Checking + savings + brokerage + CDs + IRAs and 401(k)s. Do not include your home or one car." },
+          { label: "Burial fund / life insurance face value", note: "Excluded up to $1,500 each." },
+        ],
+      },
+      {
+        title: "Step 4 — Document upload",
+        body: [
+          "Upload counts as 'received' once the portal confirms successful upload — keep that confirmation page or email.",
+          "Acceptable formats: PDF, JPG, PNG. Photos taken with a phone work as long as the entire page is in frame and text is readable.",
+          "Common rejection reason: bank statements that don't show all pages. Always upload the complete statement, even pages with no transactions.",
+        ],
+      },
+      {
+        title: "Step 5 — Submit and follow up",
+        body: [
+          "After submission you'll get a case number. Save it.",
+          "Standard processing: 30–45 days. {{stateName}} should send a written decision; if you don't hear back in 45 days, call the state agency with your case number.",
+          "If approved, your Part B premium stops being deducted from your Social Security check the month after approval — you'll see the increase on your next deposit.",
+        ],
+      },
+      {
+        title: "After approval: what changes",
+        body: [
+          "QMB: Medicare providers cannot bill you for Medicare deductibles or coinsurance — by federal law. If you get a bill, call the provider and remind them of your QMB status.",
+          "QMB and SLMB also auto-qualify you for full Extra Help (the Part D subsidy). You don't need to apply separately.",
+          "Annual recertification: most states require yearly re-verification. {{stateName}} will mail you a renewal packet ~60 days before your recert date.",
+        ],
+      },
+    ],
     sample: "p. 6 — Maryland Medicaid online application, with our example showing the QMB income field filled in correctly.",
   },
   {
@@ -2681,6 +3048,7 @@ const GUIDE_CATALOG = [
     timeToApply: "About 15 minutes",
     relatedTo: ["spdap"],
     stateSpecific: "MD",
+    verified: "January 2026",
     sections: [
       "Eligibility quickcheck before you apply",
       "Step 1 — marylandspdap.com walkthrough",
@@ -2688,6 +3056,100 @@ const GUIDE_CATALOG = [
       "Step 3 — Mailing vs. faxing your application",
       "What confirmation looks like and when to expect it",
       "How SPDAP coordinates with your Part D plan automatically",
+    ],
+    steps: [
+      {
+        title: "Eligibility quickcheck",
+        body: [
+          "SPDAP pays up to $75/month directly to your Part D insurer, lowering or zeroing out your monthly premium.",
+          "Four requirements: (1) Maryland resident for at least 6 months, (2) enrolled in a Medicare Part D plan, (3) annual income under 300% of the Federal Poverty Level (~$45,180 single / $61,320 couple in 2026), (4) not enrolled in full Medicaid.",
+          "There is NO asset test. SPDAP cares only about income, residency, and Part D enrollment.",
+          "If you're already on Extra Help (LIS), SPDAP is still worth applying for — it can layer on top to reduce any remaining premium.",
+        ],
+      },
+      {
+        title: "Documents to gather",
+        body: [
+          "Allow 15 minutes. The application is short but you'll be asked for specific dollar amounts.",
+          "Have ready: Maryland driver's license or state ID, Medicare card, current Part D plan card (member ID and monthly premium), most recent SSA-1099 or pension statement, prior-year federal tax return (if filed).",
+          "If you have no Maryland-issued ID, a recent utility bill in your name with a Maryland address works as residency proof.",
+        ],
+      },
+      {
+        title: "Step 1 — Choose how to apply: online or paper",
+        body: [
+          "Online: marylandspdap.com → 'Apply Now'. Faster (1–2 weeks for decision) and lets you upload documents directly.",
+          "Paper: download the application PDF from marylandspdap.com or call 1-800-551-5995 to have one mailed. Takes 3–4 weeks total.",
+          "Phone: 1-800-551-5995, Monday–Friday 9am–5pm. The call center can complete the application with you over the phone.",
+          "If you have all your documents in PDF form, online is fastest. If you prefer paper or don't have email, the paper or phone path is straightforward.",
+        ],
+      },
+      {
+        title: "Step 2 — Personal information",
+        body: [
+          "First section of the application. Use the legal name on your Medicare card.",
+        ],
+        fields: [
+          { label: "Full legal name", note: "Must match Medicare records." },
+          { label: "Date of birth", value: "{{birthDate}}" },
+          { label: "Social Security number", note: "Nine digits, no dashes. SPDAP uses this to verify Part D enrollment with CMS." },
+          { label: "Medicare number (MBI)", note: "From the front of your red-white-blue Medicare card. 11 characters, alphanumeric." },
+          { label: "Maryland address", note: "Street address — no P.O. boxes. SPDAP confirms residency by matching against state databases." },
+          { label: "Phone number", note: "SPDAP may call to clarify income or coverage details." },
+          { label: "Date you became a Maryland resident", note: "Approximate — month and year. Required to confirm the 6-month residency rule." },
+        ],
+      },
+      {
+        title: "Step 3 — Current Part D coverage",
+        body: [
+          "SPDAP needs to know which Part D plan you're enrolled in so they can send the subsidy directly to the correct insurer.",
+        ],
+        fields: [
+          { label: "Part D plan name", note: "Exact name as printed on your Part D member card (e.g., 'WellCare Value Script', 'SilverScript Choice')." },
+          { label: "Plan member ID", note: "From your Part D card — separate from your Medicare MBI." },
+          { label: "Effective date of Part D coverage", note: "Month and year your current plan started." },
+          { label: "Monthly premium", note: "Pre-subsidy amount. SPDAP pays up to $75 of this directly to the insurer." },
+        ],
+      },
+      {
+        title: "Step 4 — Income and household",
+        body: [
+          "Household = you + your spouse if you live together. Adult children don't count.",
+          "Use gross monthly income before taxes and Medicare deductions. Round to whole dollars.",
+        ],
+        fields: [
+          { label: "Marital status / household size", value: "{{maritalLabel}}", note: "Single = 1, married living together = 2." },
+          { label: "Gross monthly Social Security", note: "From your most recent SSA-1099 or award letter — pre-Medicare-deduction." },
+          { label: "Gross monthly pension / annuity", note: "Sum of all pensions before taxes." },
+          { label: "Gross monthly wages", note: "If still working." },
+          { label: "Other monthly income", note: "Interest, dividends, rental income, IRA distributions. Use last year's totals divided by 12." },
+          { label: "Annual gross household income (auto-totaled)", value: "{{annualIncome}} (your stated annual income from the audit)", note: "This is the figure SPDAP compares against the 300% FPL limit. Verify it matches what you entered above × 12." },
+          { label: "Are you currently enrolled in full Medicaid?", note: "If yes, SPDAP doesn't apply — full Medicaid already covers Part D. Most Cairn users in this guide will answer no." },
+        ],
+      },
+      {
+        title: "Step 5 — Sign and submit",
+        body: [
+          "Online: type your name as electronic signature, click submit. You'll see a confirmation page with a tracking number — save it.",
+          "Paper: sign and date in ink, mail to the address on the form (Maryland Department of Aging, 301 W. Preston Street, Suite 1007, Baltimore, MD 21201) OR fax to 410-333-7943.",
+          "Always keep a copy of the application and all attachments for your records. If you fax, save the confirmation page.",
+        ],
+        fields: [
+          { label: "Signature", note: "Wet ink (paper) or typed name (online). Both are legally accepted." },
+          { label: "Date signed", note: "MM/DD/YYYY." },
+        ],
+      },
+      {
+        title: "What happens next",
+        body: [
+          "Online applications: decision letter mailed in 1–2 weeks.",
+          "Paper / fax applications: 3–4 weeks.",
+          "Decision letter tells you (a) approved or denied, (b) your subsidy amount, (c) the date the subsidy starts. Subsidy typically begins the month after approval.",
+          "If approved, you do NOTHING further — SPDAP pays your Part D insurer directly, and your monthly premium drops by the subsidy amount on your next bill or auto-debit.",
+          "Annual recertification: you'll get a renewal packet in January each year. Mail it back within 30 days to avoid a coverage gap.",
+          "If denied, the letter explains why. Most denials are for income-over-limit or not-yet-enrolled-in-Part-D — both can be re-applied for once the underlying issue resolves.",
+        ],
+      },
     ],
     sample: "p. 3 — The SPDAP paper application with our example filled in, showing exactly which boxes to check for income tier 2.",
   },
@@ -2698,6 +3160,7 @@ const GUIDE_CATALOG = [
     pages: 14,
     timeToApply: "About 45 minutes for first-time filing",
     relatedTo: ["va"],
+    verified: "January 2026",
     sections: [
       "Determining if you qualify: wartime-service quickcheck",
       "Documents the VA will require (full checklist)",
@@ -2709,6 +3172,124 @@ const GUIDE_CATALOG = [
       "Appealing a denial: forms and deadlines",
       "Annual eligibility reviews and what triggers them",
     ],
+    steps: [
+      {
+        title: "Quickcheck — three eligibility tests",
+        body: [
+          "Aid & Attendance is the highest tier of VA Pension. To qualify, you must pass all three:",
+          "1. Wartime service: served at least 90 days active duty, with at least 1 day during a recognized wartime period — WWII (12/7/41–12/31/46), Korea (6/27/50–1/31/55), Vietnam (8/5/64–5/7/75; or in-country 2/28/61–5/7/75), Persian Gulf War (8/2/90–present). Discharge under conditions other than dishonorable.",
+          "2. Income/asset test: net worth (assets + annual income, minus unreimbursed medical expenses) under the VA's threshold ($155,356 in 2026 for most filers, indexed annually). Your home and one car don't count.",
+          "3. Aid & Attendance need: you require help with daily activities (bathing, dressing, eating, medication management) OR are bedridden OR are blind (corrected vision 5/200 or worse) OR live in a nursing home for mental/physical incapacity.",
+          "Surviving spouses qualify if the deceased veteran met requirements 1 and the spouse meets 2 and 3.",
+        ],
+      },
+      {
+        title: "Documents to gather (start here — collecting takes longer than filling)",
+        body: [
+          "DD-214 (military discharge): your wartime service proof. Request a free copy at archives.gov/veterans if you don't have one. Allow 4–6 weeks to receive.",
+          "Marriage certificate (and divorce decrees from any prior marriages, if applicable).",
+          "Death certificate (surviving-spouse applicants only).",
+          "Most recent federal tax return.",
+          "Bank, brokerage, and retirement account statements (last 3 months).",
+          "Mortgage statement or rent payment proof.",
+          "Itemized list of unreimbursed medical expenses for the past 12 months (caregiver costs, prescriptions, insurance premiums, in-home care, assisted-living facility fees). This deduction is the biggest swing factor in the net-worth calculation.",
+          "Doctor's statement on VA Form 21-2680, completed by your physician.",
+        ],
+      },
+      {
+        title: "Step 1 — VA Form 21P-527EZ — Section I: Veteran Information",
+        body: [
+          "Form 21P-527EZ is the main pension application. Download from va.gov/find-forms or get a paper copy from your nearest VA Regional Office.",
+          "Section I asks for veteran identifying information. Surviving-spouse applicants fill out Form 21P-534EZ instead — same fields plus a section about the deceased veteran.",
+        ],
+        fields: [
+          { label: "Veteran's full name (last, first, middle)", note: "Use the name as it appears on the DD-214." },
+          { label: "Social Security number", note: "Nine digits." },
+          { label: "VA file number (if known)", note: "Skip if you don't have one. The VA will assign one when they receive your application." },
+          { label: "Date of birth", value: "{{birthDate}}" },
+          { label: "Service number (if applicable)", note: "Found on the DD-214. Pre-1969 servicemembers had separate service numbers; later, SSN replaced it." },
+          { label: "Branch of service and dates of active duty", note: "From DD-214: from-date and to-date. Also branch (Army, Navy, etc.)." },
+          { label: "Discharge status", note: "Honorable, General Under Honorable Conditions, or Other Than Honorable. Anything below 'General' makes pension eligibility doubtful — talk to a VSO before filing." },
+        ],
+      },
+      {
+        title: "Step 2 — Section IV: Net Worth and Income",
+        body: [
+          "This is the section where applications most often fail. The VA looks at total net worth (assets + annualized income), then subtracts unreimbursed medical expenses (UMEs) to get the comparison figure.",
+          "Tip: be aggressive about UMEs. The VA accepts many medical expenses retirees overlook — Medicare premiums, supplemental insurance premiums, prescription co-pays, transportation to medical appointments, in-home caregiver costs, and assisted-living facility fees (the medical-care portion).",
+        ],
+        fields: [
+          { label: "Cash and bank accounts (combined)", note: "All checking, savings, money-market accounts." },
+          { label: "Stocks, bonds, mutual funds, IRAs", note: "Current market value." },
+          { label: "Real estate (excluding primary residence)", note: "Vacation homes, rental properties — current market value minus mortgage." },
+          { label: "Other significant assets", note: "Whole-life insurance cash value, business ownership interest." },
+          { label: "Annual income from Social Security", note: "Gross — pre-Medicare-deduction. From your most recent SSA-1099." },
+          { label: "Annual pension income", note: "Sum of all pensions before tax." },
+          { label: "Other annual income (interest, dividends, rental, wages)", note: "Use your most recent tax return as the source." },
+          { label: "Annual unreimbursed medical expenses", note: "Critical — list every medical expense paid out-of-pocket in the past 12 months. Include Medicare Part B and D premiums, Medigap premiums, deductibles, copays, transportation to appointments, prescription costs, hearing aids, dentures, eyeglasses, in-home care, assisted-living medical-care portion." },
+        ],
+      },
+      {
+        title: "Step 3 — Section V: Direct Deposit",
+        body: [
+          "VA pensions are paid only by direct deposit (no paper checks, by federal law since 2013).",
+        ],
+        fields: [
+          { label: "Bank routing number", note: "Nine digits, bottom-left of your check." },
+          { label: "Account number", note: "Bottom of your check." },
+          { label: "Account type", note: "Checking or savings." },
+        ],
+      },
+      {
+        title: "Step 4 — Form 21-2680: Doctor's Examination",
+        body: [
+          "Form 21-2680 (Examination for Housebound Status or Permanent Need for Regular Aid and Attendance) is filled out by your doctor — not you.",
+          "This is the medical evidence proving you need help with daily activities. Without it, the application is denied.",
+          "Take the form to your next regular doctor's appointment. Most physicians' offices know this form and can complete it during the visit. The doctor's office may charge a fee ($25–75) for completion.",
+          "Critical fields the doctor must address: ability to bathe, dress, eat, manage medications, manage finances, and ambulate independently. The form has yes/no checkboxes for each.",
+          "If your doctor's answers don't clearly establish A&A need, ask them to add narrative comments — VA examiners weigh narrative more heavily than checkboxes.",
+        ],
+      },
+      {
+        title: "Step 5 — Where to send the application",
+        body: [
+          "Mail or fax (NOT email) to the VA Pension Management Center for your state:",
+          "If you live in: CT, DE, IN, ME, MD, MA, NH, NJ, NY, NC, OH, PA, RI, VT, VA, DC, WV → mail to: Department of Veterans Affairs, Pension Management Center, P.O. Box 5365, Janesville, WI 53547-5365.",
+          "If you live in: AL, AR, FL, GA, KY, LA, MS, OK, PR, SC, TN, TX → mail to: Department of Veterans Affairs, Pension Management Center, P.O. Box 5365 (the same Janesville address — VA consolidated PMCs in 2017).",
+          "If you live in: AK, AZ, CA, CO, HI, ID, IL, IA, KS, MI, MN, MO, MT, NE, NV, NM, ND, OR, SD, UT, WA, WI, WY → same Janesville address.",
+          "Verify the current mailing address at va.gov/find-locations before mailing — this can change.",
+          "Fax (faster than mail): 844-655-1604.",
+          "Or apply online at va.gov/pension/application/527EZ — fastest, but the system has had reliability issues. Paper is more reliable for first-time filers.",
+        ],
+      },
+      {
+        title: "Working with an accredited VA agent or VSO",
+        body: [
+          "A&A applications are notoriously easy to get wrong. About 30% of first-time filings are denied for incomplete documentation.",
+          "Accredited Veterans Service Officers (VSOs) — from organizations like the American Legion, VFW, DAV, AMVETS — help you file at no charge. They're VA-trained and know the common pitfalls.",
+          "Find a VSO at va.gov/ogc/apps/accreditation/index.asp.",
+          "AVOID: anyone who charges a fee to file (illegal under federal law) or who promises 'guaranteed approval' or 'asset-shielding strategies' (can disqualify you).",
+        ],
+      },
+      {
+        title: "Decision timeline and follow-up",
+        body: [
+          "Average processing time: 4–8 months for first-time A&A claims. Some Pension Management Centers run faster (Wisconsin lately) than others.",
+          "You can check status at va.gov/claim-or-appeal-status using your VA file number once you have one.",
+          "If approved, payments are retroactive to the application date — submit promptly because every month of delay is a month of benefit lost.",
+          "If denied, you have 1 year from the decision letter to file a Notice of Disagreement (Form 21-0958) or Higher-Level Review.",
+        ],
+      },
+      {
+        title: "After approval — annual eligibility reviews",
+        body: [
+          "Once approved, you receive Form 21P-0518 (Improved Pension Eligibility Verification Report) every year. Complete and return within 60 days.",
+          "Failure to return = automatic suspension of benefits.",
+          "Notify the VA within 30 days of any change to: marital status, household composition, income, assets, or unreimbursed medical expenses.",
+          "If your situation improves (income up, medical needs decrease), benefits may be reduced or terminated. Conversely, if costs rise, you can request a re-evaluation for a higher benefit tier mid-year.",
+        ],
+      },
+    ],
     sample: "p. 5 — Form 21P-527EZ, page 2, with our example showing how to report unreimbursed medical expenses (the deduction most applicants miss).",
   },
   {
@@ -2719,6 +3300,7 @@ const GUIDE_CATALOG = [
     timeToApply: "About 20 minutes",
     relatedTo: ["medicare_enrollment"],
     universal: true,
+    verified: "January 2026",
     sections: [
       "Your enrollment window: how to know when to apply",
       "Step 1 — Creating your my Social Security account",
@@ -2728,6 +3310,131 @@ const GUIDE_CATALOG = [
       "Setting up Medicare Easy Pay for your Part B premium",
       "Late-enrollment penalties: how to avoid them",
       "Coordinating with employer coverage (if applicable)",
+    ],
+    // Field-by-field body content. Personalization tokens like {{stateName}}
+    // and {{iepEnd}} are filled from the user's audit answers at PDF time.
+    steps: [
+      {
+        title: "Before you start: what you'll need on hand",
+        body: [
+          "Block 20 minutes. The application itself takes 10–15 minutes, but you'll need a few documents nearby.",
+          "Gather: Social Security number, current address and phone, your bank account and routing number (for Easy Pay), and — if you're delaying Part B because of employer coverage — your employer's name, address, and the date your coverage started.",
+          "If you've worked outside the U.S. or held a railroad job, also note those dates: SSA asks separately about each.",
+        ],
+      },
+      {
+        title: "Step 1 — Create your my Social Security account at ssa.gov/myaccount",
+        body: [
+          "If you already have a my Social Security account, skip ahead. Otherwise, go to ssa.gov/myaccount and click 'Create an Account'.",
+          "SSA verifies your identity using credit-history questions (prior addresses, mortgage lender, car loan). Have a credit report or recent statements nearby in case you're asked.",
+          "The account uses Login.gov or ID.me as the federal sign-in. Both are free; pick whichever you've used before.",
+        ],
+        fields: [
+          { label: "Email address", note: "Use one you check daily — SSA emails enrollment confirmations here." },
+          { label: "Mobile phone for two-factor", note: "Required for the federal sign-in. A landline works too if you accept voice codes." },
+          { label: "Identity verification", note: "Multi-choice questions about your credit history. If you fail twice, you'll need to verify by mail (adds 7–10 days)." },
+        ],
+      },
+      {
+        title: "Step 2 — Open the Medicare-only application at ssa.gov/medicare/sign-up",
+        body: [
+          "From your my Social Security account, choose 'Apply for Medicare Only' (not 'Apply for Retirement' — that starts Social Security benefits, which is a separate decision).",
+          "The form is split into ~6 short pages. SSA saves your progress, so you can pause and return.",
+        ],
+        fields: [
+          { label: "Are you applying for Medicare only?", value: "Yes", note: "Selecting 'Yes' keeps your Social Security retirement benefit decision separate." },
+          { label: "Do you want Part B?", value: "Yes", note: "Almost everyone should answer yes. The exceptions are people with active 20+-employee employer coverage who want to delay. See the employer-coverage step." },
+          { label: "Date you want coverage to start", value: "{{partBStartLabel}}", note: "If you're in your IEP, the earliest start date is the first day of your birth month. Pick that unless you have employer coverage you're keeping." },
+          { label: "Have you ever filed for Medicare before?", value: "No (typical)", note: "Yes only if you previously applied and were denied or withdrew." },
+        ],
+      },
+      {
+        title: "Step 3 — Personal information",
+        body: [
+          "This page collects identifying details. Use the legal name on your Social Security card — not a nickname or married name unless you've updated it with SSA.",
+        ],
+        fields: [
+          { label: "Full legal name", note: "Must match your Social Security card exactly. If your card is wrong, fix it at SSA before applying." },
+          { label: "Social Security number", note: "Nine digits, no dashes." },
+          { label: "Date of birth", value: "{{birthDate}}", note: "Month, day, year." },
+          { label: "Place of birth (city, state, country)", note: "Country is required even if it's the U.S." },
+          { label: "U.S. citizen?", note: "If no, SSA asks for your immigration status and the date you entered the U.S." },
+          { label: "Mailing address", note: "Where your Medicare card and welcome packet will be sent. Use the address that appears on your IRS records to avoid identity-verification flags." },
+          { label: "Phone number", note: "SSA may call to clarify answers. Use a number you actually answer." },
+        ],
+      },
+      {
+        title: "Step 4 — Work history and Medicare-qualifying coverage",
+        body: [
+          "SSA confirms you have enough work credits for premium-free Part A (typically 40 quarters / 10 years of Medicare-taxed work). If you don't, you can still buy Part A — but most people qualify automatically.",
+          "If your spouse has 40 quarters and you don't, you can qualify on their record. SSA asks about this here.",
+        ],
+        fields: [
+          { label: "Have you worked in U.S. employment for at least 10 years?", note: "Yes if you have ~40 quarters of Medicare-taxed work. Self-employment counts." },
+          { label: "Are you currently working?", note: "Drives the next page about employer coverage." },
+          { label: "Have you ever worked outside the U.S.?", note: "Affects totalization with foreign social-security systems. Most U.S.-only workers answer no." },
+          { label: "Have you ever worked for a railroad?", note: "Railroad workers enroll through the Railroad Retirement Board, not SSA. If yes, SSA will redirect you." },
+          { label: "Spouse's work history (if applying on spouse's record)", note: "Provide spouse's name, SSN, and birth date." },
+        ],
+      },
+      {
+        title: "Step 5 — Employer health coverage (if applicable)",
+        body: [
+          "{{employerCoverageGuidance}}",
+          "If you're delaying Part B because of employer coverage, you'll later need to file Form CMS-L564 with your employer's HR department to document continuous coverage when you do enroll.",
+        ],
+        fields: [
+          { label: "Do you (or your spouse) currently have employer or union health coverage?", value: "{{employerCoverageAnswer}}", note: "Be specific — retiree coverage and COBRA do NOT count as 'active' employment for the Special Enrollment Period." },
+          { label: "Employer name and address", note: "Only if you answered yes. SSA may contact them to verify." },
+          { label: "Date the coverage started", note: "Month and year." },
+          { label: "Is the employer's group size 20 or more employees?", note: "20+ unlocks the Special Enrollment Period and lets you delay Part B without penalty. Under 20, Medicare becomes primary at 65 and delaying Part B is risky." },
+        ],
+      },
+      {
+        title: "Step 6 — Review, sign, and submit",
+        body: [
+          "SSA shows a summary of every answer. Check it carefully — corrections after submission require a phone call to 1-800-772-1213.",
+          "The 'signature' is just typing your full name in the signature box. SSA treats this as a legal signature for the application.",
+          "After submitting, you'll get a confirmation number on screen. Save or print it. SSA also emails confirmation within 24 hours.",
+        ],
+        fields: [
+          { label: "Electronic signature", note: "Type your full legal name exactly as entered earlier." },
+          { label: "Date", note: "Auto-filled to today." },
+          { label: "Confirmation number", note: "Format: a long alphanumeric string. Keep it — you'll need it if anything goes wrong." },
+        ],
+      },
+      {
+        title: "What happens next",
+        body: [
+          "{{nextStepsGuidance}}",
+          "Standard timeline: SSA processes the application within 1–3 weeks. Your red-white-blue Medicare card mails ~3 weeks before your coverage start date.",
+          "If you don't see the card 2 weeks before your start date, call 1-800-MEDICARE (1-800-633-4227) with your confirmation number.",
+          "You'll also receive a 'Welcome to Medicare' packet — keep it. It explains preventive services that are free in your first 12 months.",
+        ],
+      },
+      {
+        title: "Set up Medicare Easy Pay (recommended)",
+        body: [
+          "Part B premiums are deducted automatically from your Social Security check if you're drawing benefits. If you're not, SSA bills you quarterly — late payment can cause coverage to lapse.",
+          "Medicare Easy Pay is the auto-debit alternative. Sign up at medicare.gov/medicareeasypay or by mailing Form SF-5510.",
+          "Premium for 2026: roughly $190/month for most people; higher for IRMAA-tier incomes.",
+        ],
+        fields: [
+          { label: "Bank routing number", note: "Nine digits, bottom-left of your check." },
+          { label: "Bank account number", note: "Bottom of your check, after the routing number." },
+          { label: "Account type", note: "Checking or savings." },
+          { label: "Authorization signature", note: "Required on Form SF-5510 (paper) or e-signature on the website." },
+        ],
+      },
+      {
+        title: "Avoiding Part B and Part D late penalties",
+        body: [
+          "Part B late penalty: 10% added to your monthly premium for every full 12 months you delayed enrolling, for life.",
+          "Part D late penalty: 1% of the national base premium added per month without creditable drug coverage, for life.",
+          "Both penalties are waived if you had qualifying employer coverage during the gap and use the Special Enrollment Period (8 months from the date employer coverage ends).",
+          "If you missed your IEP and don't qualify for an SEP, the General Enrollment Period (Jan 1 – Mar 31) is your next chance. Coverage starts the month after enrollment.",
+        ],
+      },
     ],
     sample: "p. 4 — The Medicare application screen showing where most people accidentally decline Part B (and how to fix it if you did).",
   },
@@ -2739,6 +3446,7 @@ const GUIDE_CATALOG = [
     timeToApply: "About 1 hour for thorough comparison",
     relatedTo: ["medigap"],
     universal: true,
+    verified: "January 2026",
     sections: [
       "Why Plan G is identical from every carrier (and what isn't)",
       "Building your shopping list: 5 carriers minimum",
@@ -2748,6 +3456,114 @@ const GUIDE_CATALOG = [
       "Reading the rate-stability disclosures (most agents don't show you these)",
       "Step 3 — Choosing and applying within your guaranteed-issue window",
       "Annual review: how to switch if your carrier raises rates",
+    ],
+    steps: [
+      {
+        title: "Why Plan G is identical from every carrier",
+        body: [
+          "Federal law (CMS regulations) defines exactly what Medigap Plan G covers. Every carrier's Plan G has the same benefits — same coinsurance coverage, same Part B excess charges, same skilled-nursing-facility coinsurance, same foreign-travel emergency benefit.",
+          "What differs across carriers: monthly premium (can vary 30–50% in your zip code), rating method (attained-age vs. issue-age vs. community), household discount (5–15% for spousal pairs), recent rate-increase history, and customer service quality.",
+          "Plan G covers everything Plan F did EXCEPT the Part B deductible ($240/year in 2026). It's the most popular plan for new enrollees because Plan F is no longer available to people who turned 65 after 2020.",
+          "If premium is your top concern and you don't mind paying the Part B deductible yourself, Plan G's slightly cheaper sibling Plan N is also worth a quote — but it has copays at the doctor's office that Plan G doesn't.",
+        ],
+      },
+      {
+        title: "Build your shopping list: 5 carriers minimum",
+        body: [
+          "The single biggest mistake Medigap shoppers make: getting one quote and stopping. Plan G premiums for the same coverage in your zip code routinely vary by $50–100/month, which is $600–1,200/year forever.",
+          "{{stateName}} carriers worth quoting first (from the audit's Medigap section): the carriers shown in your Cairn results. Aim for 5+ quotes minimum.",
+          "Useful shortcut: also quote a regional Blue Cross Blue Shield plan in your state (e.g., CareFirst in MD/DC/VA, Anthem in CA/CO/CT, Highmark in PA, Florida Blue in FL). Local Blues sometimes price aggressively for state residents.",
+          "Avoid: any quote site that asks for your phone number before showing prices. They're lead-generators that sell your number to 5–10 agents who will call all day. Get quotes directly from carrier websites or via 1-800-MEDICARE's free Medigap quote tool.",
+        ],
+        fields: [
+          { label: "Your ZIP code", note: "All Medigap quotes are zip-code specific. The same plan can vary $30/mo across zip codes 20 miles apart." },
+          { label: "Tobacco use", note: "Smokers pay 20–35% more across most carriers. Honest disclosure matters — carriers can deny claims if you misrepresent and they later find out." },
+          { label: "Spouse coverage?", note: "If your spouse is also Medicare-eligible, ask about household discount on each quote. 5–15% off, often enough to flip the rankings." },
+        ],
+      },
+      {
+        title: "Step 1 — Get your first quote (Mutual of Omaha walkthrough)",
+        body: [
+          "Why start with Mutual of Omaha: A+ AM Best rating, available in all 50 states, transparent pricing on their public site, and they offer a 7% household discount.",
+          "Go to mutualofomaha.com → 'Medicare Supplement' → 'Get a Quote'. You'll be on the quote page within 2 clicks.",
+        ],
+        fields: [
+          { label: "ZIP code, gender, date of birth", value: "{{birthDate}}", note: "Birth date determines your premium tier. Quotes auto-update on each birthday for attained-age carriers." },
+          { label: "Tobacco use", note: "Honest answer required." },
+          { label: "Effective date you want coverage to start", note: "Pick the first of the month after your Part B starts. For Cairn IEP users: this is {{partBStartLabel}}." },
+          { label: "Household discount eligibility", note: "If your spouse is on Medicare or applying with you, check yes for the 7% discount. Mutual of Omaha's spousal discount applies even if your spouse picks a different Medigap carrier." },
+          { label: "Plan letter", value: "Plan G", note: "Pick Plan G. The site will show Plan G, Plan G HD (high-deductible variant — different beast), Plan N, and others. Stick with regular Plan G unless you've researched the others." },
+        ],
+      },
+      {
+        title: "Step 2 — Repeat with Cigna, Aetna, and a regional Blue",
+        body: [
+          "Cigna: cigna.com → 'Medicare Supplement' → 'Get a Quote'. Cigna often has the lowest new-enrollee Plan G price in {{stateName}}.",
+          "Aetna: aetnamedicare.com → 'Medicare Supplement Plans'. Aetna's pricing is mid-pack but rate stability is good.",
+          "Regional Blue (varies by state): for example, Florida Blue in FL, Highmark in PA, CareFirst BCBS in MD/DC. Blues often have strong local provider relationships and reasonable rate stability.",
+          "United Healthcare (AARP-branded): aarpmedicaresupplement.com. Requires an AARP membership ($16/year) to enroll. UHC is the largest Medigap carrier; pricing is rarely cheapest but rate increases tend to be moderate.",
+          "Use the same exact answers (zip, DOB, tobacco, plan G, effective date) on each site to make quotes comparable.",
+        ],
+      },
+      {
+        title: "Build a side-by-side comparison sheet",
+        body: [
+          "Open a spreadsheet (or use Cairn's comparison worksheet on page 7 of this guide). Columns: carrier, monthly premium, AM Best rating, rating method, household discount %, last 3-year rate-increase history, customer-service rating from JD Power.",
+          "Fill in each carrier as you get the quote. Don't try to remember — small differences matter and you'll forget by carrier #4.",
+        ],
+        fields: [
+          { label: "Carrier name", note: "From your shopping list." },
+          { label: "Monthly premium with discounts applied", note: "Use the household-discount-applied price if applicable. That's what you'll actually pay." },
+          { label: "AM Best financial strength rating", note: "A or better is fine. A- or below = research before committing." },
+          { label: "Rating method", note: "Attained-age (rises each birthday), issue-age (locks at enrollment), or community-rated (same for all ages). Long-term cost depends on this more than starting premium." },
+          { label: "Household discount %", note: "0–15%. Apply only if your spouse will also be on Medicare and enrolling with the same or different carrier (varies by carrier)." },
+          { label: "3-year average annual rate increase", note: "Ask the agent or look up state filings. <5% is good; 8%+ is concerning." },
+        ],
+      },
+      {
+        title: "What to ask each carrier (the questions agents skip)",
+        body: [
+          "Most Medigap agents are paid commission and will steer you toward the carrier paying them best. To level the field, ask each one the same questions — the answers tell you whether to trust them.",
+          "1. 'What's your average annual rate increase over the last 3 years for Plan G in my zip code?' (Honest answer: 4–8%. If they say 'rates rarely go up,' they're lying.)",
+          "2. 'Is this attained-age, issue-age, or community-rated?' (Drives long-term cost. Most carriers nationally are attained-age.)",
+          "3. 'Do you offer a household discount, and what are the eligibility requirements?' (Some carriers require both spouses on Medicare; others count co-habitation only.)",
+          "4. 'How are you rated by AM Best, and has your rating changed in the last 5 years?' (UHC was downgraded from A+ to A in Aug 2025 — most agents don't volunteer this.)",
+          "5. 'Will you give me a copy of the most recent rate-increase filing for my state?' (Good agents will. State insurance departments publish these publicly anyway.)",
+        ],
+      },
+      {
+        title: "Reading the rate-stability disclosures",
+        body: [
+          "Every state insurance department publishes Medigap rate-increase filings. Search '[your state] insurance department medigap rate' to find yours.",
+          "{{stateName}} rate-comparison resource: " + "Look for the most recent 3 years of filings per carrier. Patterns matter more than any single year — a carrier with one big jump and otherwise flat rates is different from one with steady 7%/year hikes.",
+          "Issue-age and community-rated carriers will show smaller annual increases than attained-age, because attained-age has age-creep baked into the structure.",
+          "If you're choosing between two carriers within $10/mo, pick the one with the better 3-year history.",
+        ],
+      },
+      {
+        title: "Step 3 — Apply within your 6-month guaranteed-issue window",
+        body: [
+          "The Medigap guaranteed-issue window starts the month your Part B begins and lasts 6 months. During this window, no carrier can deny you for health reasons or charge more for pre-existing conditions.",
+          "Outside this window, most states let carriers medically underwrite — they can deny coverage, charge more, or impose waiting periods.",
+          "For Cairn pre-65 users: your guaranteed-issue window is {{partBStartLabel}} through ~6 months later. Apply during this window.",
+          "Submit the application directly through the carrier's website. Approval is automatic during guaranteed-issue (paperwork only, no health questions).",
+        ],
+        fields: [
+          { label: "Effective date", value: "{{partBStartLabel}}", note: "Pick the first of the month your Part B starts. Earlier is risky (no Medicare to coordinate with); later means a coverage gap." },
+          { label: "Health questions", note: "During the 6-month guaranteed-issue window, the application skips health questions. If you see them, you may be applying outside your window — pause and verify." },
+          { label: "Payment method", note: "Most carriers accept auto-draft from bank account or credit card. Some also support deduction from Social Security." },
+          { label: "Effective date confirmation", note: "Carrier emails or mails an effective-date confirmation within 7–10 days. Save it." },
+        ],
+      },
+      {
+        title: "Annual review: how to switch if your carrier raises rates",
+        body: [
+          "If your carrier raises rates >7% in a year, shop again. You can switch carriers at any time — Medigap doesn't have an Annual Enrollment Period like Part D.",
+          "Catch: outside your initial 6-month guaranteed-issue window, you'll likely face medical underwriting on the new carrier. If you have health conditions, you may be denied or charged more.",
+          "Exception: California's birthday rule. Every year in the 60 days following your birthday, you can switch to any equal-or-lesser Plan G with any carrier without medical underwriting.",
+          "Other states with similar rules: New York, Connecticut (community-rated by law), Massachusetts (annual open enrollment), Maine, Vermont. Check your state's specific rules at shiphelp.org.",
+        ],
+      },
     ],
     sample: "p. 7 — A side-by-side worksheet: same Plan G, five carriers, with our example showing $73/mo difference on identical coverage.",
   },
@@ -2759,6 +3575,7 @@ const GUIDE_CATALOG = [
     timeToApply: "About 30 minutes (need your medication list)",
     relatedTo: ["medicare_enrollment", "medigap"],
     universal: true,
+    verified: "January 2026",
     sections: [
       "Before you start: gathering your medication list",
       "Why total annual cost beats monthly premium",
@@ -2768,6 +3585,111 @@ const GUIDE_CATALOG = [
       "Step 4 — Enrolling directly through Plan Finder",
       "Annual review reminder: re-shop every fall",
       "What to do if a drug is dropped from your formulary mid-year",
+    ],
+    steps: [
+      {
+        title: "Before you start: build your medication list",
+        body: [
+          "Allow 30 minutes. Plan Finder is fast once you have your drug list ready — most of the time you'll spend is gathering names, dosages, and quantities.",
+          "For each prescription you take, write down: drug name (brand or generic — Plan Finder accepts either), dose (e.g., 20 mg), frequency (e.g., once daily), and quantity per fill (e.g., 30 tablets per 30 days).",
+          "Easiest source: ask your pharmacy for a printout of your last 12 months of prescriptions. Most pharmacies print this on request, no charge.",
+          "If you take seasonal or as-needed drugs (inhalers, allergy meds), include them — they affect total annual cost.",
+        ],
+      },
+      {
+        title: "Why total annual cost beats monthly premium",
+        body: [
+          "The cheapest-premium plan is rarely the cheapest plan overall. Drug deductibles, copays, and tier placement matter more than the headline premium.",
+          "Example: a $5/mo plan with a $545 deductible and 25% coinsurance on tier-3 drugs can easily cost $1,200/year more than a $35/mo plan with $0 copays for your specific drugs.",
+          "Plan Finder shows 'estimated annual drug cost' in the results — that's the column to sort by.",
+          "The 2026 Part D donut-hole reform caps total annual out-of-pocket at $2,100 — so for high-utilizers, every plan converges above that ceiling. The differences live in the first $2,100.",
+        ],
+      },
+      {
+        title: "Step 1 — Open Plan Finder at medicare.gov/plan-compare",
+        body: [
+          "From the Medicare.gov homepage, click 'Find a plan' or go directly to medicare.gov/plan-compare.",
+          "You can use Plan Finder logged-in (with your my Medicare account) or as a guest. Logged-in is better — it remembers your drug list across sessions and pre-fills your name when you enroll.",
+        ],
+        fields: [
+          { label: "What type of coverage are you looking for?", value: "Drug plan (Part D)", note: "Select 'Drug plan (Part D)' to see standalone Part D plans. Selecting 'Medicare Advantage Plan' switches to MA + Part D bundles — different shopping flow." },
+          { label: "ZIP code", note: "Plans and prices are zip-code specific." },
+          { label: "Are you getting any kind of help paying for your prescriptions?", note: "Answer yes if you have Extra Help / LIS, full Medicaid, or are in an MSP — Plan Finder will show your subsidized cost instead of full cost." },
+        ],
+      },
+      {
+        title: "Step 2 — Enter your drugs",
+        body: [
+          "Plan Finder asks for your drugs one at a time. Type the first few letters and pick from the dropdown — generic and brand are usually both listed.",
+          "After picking each drug, set the dose and quantity. Plan Finder defaults to common values; verify they match your prescription label.",
+          "If a drug isn't in the dropdown, it's either misspelled, an over-the-counter med (Part D doesn't cover OTC), or extremely new — call 1-800-MEDICARE to confirm.",
+          "Save your drug list before continuing. The 'Save' button stores it to your my Medicare account; without an account, Plan Finder remembers it for the current browser session only.",
+        ],
+        fields: [
+          { label: "Drug name", note: "Type 3+ letters, pick from the dropdown. Brand and generic are interchangeable for matching purposes." },
+          { label: "Dose", note: "From your prescription label. If your prescription says '10 mg twice daily,' enter 10 mg here and 'twice daily' as frequency." },
+          { label: "Quantity per fill", note: "How many pills/tablets per refill. 30 for monthly, 90 for 3-month mail-order." },
+          { label: "Frequency", note: "Once daily, twice daily, etc. Affects whether you fill 30 or 60 tablets per month." },
+        ],
+      },
+      {
+        title: "Step 3 — Pick your pharmacy",
+        body: [
+          "Plan Finder asks for up to 5 pharmacies. Most plans have 'preferred' pharmacies where copays are lower — this can swing total annual cost by hundreds of dollars.",
+          "Tip: include your usual pharmacy AND a major chain (CVS, Walgreens, Walmart). If your usual pharmacy isn't preferred under the cheapest plan, switching might save more than the plan's premium savings.",
+          "Mail-order pharmacy (Express Scripts, OptumRx, etc.) is almost always the lowest-copay option for 3-month fills of maintenance drugs.",
+        ],
+        fields: [
+          { label: "Pharmacy ZIP code", note: "Defaults to your home ZIP." },
+          { label: "Pharmacy search", note: "Type pharmacy name or browse by chain. Pick up to 5." },
+          { label: "Include mail-order pharmacy?", note: "Yes — mail-order is often the lowest-copay option for maintenance medications." },
+        ],
+      },
+      {
+        title: "Step 4 — Read the results",
+        body: [
+          "Plans are listed with: monthly premium, annual deductible, estimated annual drug cost, and CMS Star Rating (1–5).",
+          "Sort by 'Lowest drug + premium cost' — this is total annual cost. Don't sort by premium alone.",
+          "Star Rating reflects the plan's customer-service and accuracy track record. Aim for 3.5 stars or higher when total cost is close.",
+          "Click into the top 2–3 plans to see drug-by-drug copays — sometimes a $5/mo difference in premium hides a $40/mo difference on a tier-3 drug you take.",
+        ],
+        fields: [
+          { label: "Sort by", value: "Lowest drug + premium cost", note: "This shows total annual cost — the metric that matters." },
+          { label: "Filter: Star Rating", note: "Optional — filter to 4+ stars if quality matters more than $50/year of savings." },
+          { label: "Filter: Plan type", note: "Stand-alone PDP only (not MA-PD), unless you want a Medicare Advantage bundle." },
+          { label: "Compare", note: "Check up to 3 plans to see drug-by-drug copays side-by-side. Look for tier-3 drugs (most expensive) — that's where plan differences show." },
+        ],
+      },
+      {
+        title: "Step 5 — Enroll directly through Plan Finder",
+        body: [
+          "Once you've picked a plan, click 'Enroll' next to it on the comparison page. Plan Finder hands you off to the insurer's enrollment form, but pre-fills most fields from your Medicare account.",
+          "You'll need: Medicare card (MBI), Part A and Part B effective dates, payment method (premium can be auto-deducted from Social Security or paid by bank transfer).",
+          "Confirmation: the insurer emails or mails a welcome packet within 7–10 days. Coverage starts the 1st of the month after enrollment (during AEP, coverage starts Jan 1).",
+        ],
+        fields: [
+          { label: "Medicare number (MBI)", note: "From the front of your red-white-blue Medicare card." },
+          { label: "Part A and Part B effective dates", note: "Also on your Medicare card." },
+          { label: "Premium payment method", note: "Three options: deduction from Social Security check (most common), bank auto-draft, or mailed bill." },
+          { label: "Pharmacy preference", note: "Pre-filled from earlier in Plan Finder." },
+        ],
+      },
+      {
+        title: "Annual review every fall (Open Enrollment, Oct 15 – Dec 7)",
+        body: [
+          "Re-run Plan Finder every fall. Drug formularies change yearly — a plan that was best for you in 2026 may not be in 2027.",
+          "Most people who don't re-shop end up paying $200–700/year more than they need to.",
+          "If you switch plans during AEP, the new plan starts Jan 1 automatically. No need to cancel the old one.",
+        ],
+      },
+      {
+        title: "If a drug is dropped from your formulary mid-year",
+        body: [
+          "Insurers can drop drugs mid-year, but they must give you 30 days' notice and offer a transition supply (typically 30 days at the previous tier).",
+          "Three options: (1) ask your doctor for an alternative on the formulary, (2) request a formulary exception (your doctor submits a Medical Necessity form to the plan), (3) wait until next AEP and switch plans.",
+          "Formulary exception success rate is ~70% when your doctor submits the request with documented medical necessity.",
+        ],
+      },
     ],
     sample: "p. 5 — Plan Finder results, annotated to show which 'cheapest premium' is actually $400/year more expensive than option three.",
   },
@@ -2779,6 +3701,7 @@ const GUIDE_CATALOG = [
     timeToApply: "About 25 minutes",
     relatedTo: ["irmaa"],
     universal: true,
+    verified: "January 2026",
     sections: [
       "Quickcheck: do you have a life-changing event the SSA recognizes?",
       "Documents you'll need: tax returns, marriage/death certificates, retirement letter",
@@ -2787,6 +3710,130 @@ const GUIDE_CATALOG = [
       "Step 3 — Submitting and what to expect",
       "Decision timeline and how to follow up",
       "If denied: requesting reconsideration",
+    ],
+    steps: [
+      {
+        title: "Quickcheck — does SSA recognize your event?",
+        body: [
+          "IRMAA = the Income-Related Monthly Adjustment Amount added to your Part B and Part D premiums when MAGI exceeds the threshold. SSA bases the surcharge on your tax return from 2 years ago.",
+          "Form SSA-44 is the appeal form — but only 8 specific 'life-changing events' (LCEs) qualify. If your income just dropped because you retired or sold a one-time asset, that's NOT an LCE on its own — only the events listed below.",
+          "The 8 qualifying LCEs: marriage, divorce or annulment, death of a spouse, work stoppage (you fully stopped working), work reduction (hours/income cut), loss of income-producing property (not by sale), loss of pension income, employer settlement payment.",
+          "If your event isn't on this list, SSA-44 won't help — wait for the 2-year lookback to catch up to your reduced income, or appeal through the standard Reconsideration process instead.",
+        ],
+      },
+      {
+        title: "Documents to gather",
+        body: [
+          "You will mail or fax the form (no online submission). Have ready before you start:",
+          "Most recent IRMAA determination letter from SSA (the one telling you about the surcharge).",
+          "Documentation proving the LCE: marriage certificate, divorce decree, death certificate, employer letter confirming work stoppage / reduction with last day worked, statement showing pension cessation, etc.",
+          "Most recent federal tax return (Form 1040), or — if you're using estimated current-year income — a signed statement explaining your estimate.",
+          "Your full Medicare claim number (MBI) from the front of your red-white-blue card.",
+        ],
+      },
+      {
+        title: "Download Form SSA-44 from ssa.gov",
+        body: [
+          "Go to ssa.gov/forms and search 'SSA-44' or download directly from ssa.gov/forms/ssa-44.pdf.",
+          "The form is 8 pages — pages 1–4 are instructions, pages 5–8 are the fillable form.",
+          "You can fill it on screen in Adobe Reader or print and complete by hand. Either is accepted.",
+        ],
+        fields: [
+          { label: "Form version date", note: "Verify the form footer date is current. SSA reissues SSA-44 most years — using an outdated version can trigger rejection." },
+        ],
+      },
+      {
+        title: "Step 1 — Type of Life-Changing Event",
+        body: [
+          "Check exactly one box. If two events apply (e.g., death of spouse + work stoppage), file two separate SSA-44s.",
+          "Enter the date the event happened in MM/DD/YYYY format.",
+        ],
+        fields: [
+          { label: "Marriage", note: "Check if you married. Documentation: marriage certificate." },
+          { label: "Divorce or Annulment", note: "Documentation: divorce decree or annulment order." },
+          { label: "Death of Your Spouse", note: "Documentation: death certificate." },
+          { label: "Work Stoppage", note: "You fully stopped working (retirement, layoff, business closed). Documentation: signed employer statement with last day worked OR severance/termination letter." },
+          { label: "Work Reduction", note: "Hours or income reduced. Documentation: signed employer statement detailing the reduction and effective date." },
+          { label: "Loss of Income-Producing Property", note: "Not from a sale — must be from disaster, theft, or seizure. Documentation: insurance/disaster report, court order." },
+          { label: "Loss of Pension Income", note: "Pension stopped or was cut due to plan termination/reorganization. Documentation: letter from the pension administrator." },
+          { label: "Employer Settlement Payment", note: "Court-ordered payment from a former employer over a closed/bankrupt pension. Documentation: court order or settlement agreement." },
+          { label: "Date of life-changing event", note: "MM/DD/YYYY. Must be on or before the date you're filing." },
+        ],
+      },
+      {
+        title: "Step 2 — Reduction in Income (the section most people fill wrong)",
+        body: [
+          "This is where you tell SSA which year's income to use INSTEAD of the 2-years-ago return.",
+          "Two choices: (a) the most recent tax year you've already filed, or (b) the year you're currently in (estimated). For most LCE appeals, the current-year estimate is what produces the IRMAA reduction — the prior tax year usually still shows the high income.",
+          "If you choose the current-year estimate, you must explain how you got the number. SSA will reconcile against your actual tax return when you file it.",
+        ],
+        fields: [
+          { label: "Tax year you want SSA to use", value: "{{currentYear}} (estimated)", note: "Pick the year that, post-LCE, has lower income. For most people that's the current year." },
+          { label: "Estimated Modified AGI (line A)", value: "{{annualIncome}} (your stated annual income)", note: "MAGI = AGI from Form 1040 Line 11 + tax-exempt interest from Line 2a. If using current-year estimate, this is your projection.", verifyOnLiveForm: true },
+          { label: "Estimated tax-exempt interest (line B)", note: "From Form 1040 Line 2a. Most retirees: $0. Add municipal bond interest if any." },
+          { label: "Sum (line A + line B)", note: "This is the figure SSA uses. Put it in the 'Modified AGI' box." },
+        ],
+      },
+      {
+        title: "Step 3 — Tax Filing Status",
+        body: [
+          "Check the filing status that matches the year you used in Step 2 — NOT necessarily your status today.",
+          "If you got married this year, you're likely Married Filing Jointly for the current year even if you were Single on the 2-years-ago return.",
+        ],
+        fields: [
+          { label: "Single", value: "{{filingStatusSingle}}" },
+          { label: "Married Filing Jointly", value: "{{filingStatusJoint}}" },
+          { label: "Married Filing Separately", note: "MFS has its own (lower) IRMAA thresholds. Check this only if you actually file separately." },
+          { label: "Head of Household" },
+          { label: "Qualifying Widow(er)", note: "Available for 2 years after spouse's death if you have a qualifying dependent." },
+        ],
+      },
+      {
+        title: "Step 4 — Documentation checklist",
+        body: [
+          "On page 4 of the form, attach copies (NOT originals) of the LCE documentation matching the box you checked in Step 1.",
+          "Also attach: a copy of your most recent tax return, OR a signed and dated statement explaining your current-year estimate.",
+          "Common rejection reason: incomplete documentation. If you checked 'Work Stoppage' but only attach a personal letter — not from your employer — SSA will deny the appeal as unsubstantiated.",
+        ],
+        fields: [
+          { label: "LCE documentation", note: "Match exactly to the box you checked in Step 1." },
+          { label: "Tax return OR signed estimate statement", note: "If estimating, include: the year you're estimating, the dollar amount, and the basis (e.g., 'projected wages of $X plus pension of $Y for the remainder of the year')." },
+          { label: "Copy of IRMAA determination letter", note: "Optional but speeds processing — SSA can match your appeal to the right tax year faster." },
+        ],
+      },
+      {
+        title: "Step 5 — Sign, date, and submit",
+        body: [
+          "Sign on page 4. The form is invalid without a wet or e-signature.",
+          "Mail or fax to your local Social Security field office (find at ssa.gov/locator). You can also drop off in person.",
+          "Do NOT mail to the SSA national headquarters — local offices process IRMAA appeals.",
+          "Keep a complete copy of everything you send, including the postmark receipt or fax confirmation page.",
+        ],
+        fields: [
+          { label: "Signature", note: "Wet ink or e-signature. SSA does not accept '/s/ name' typed signatures on this form.", verifyOnLiveForm: true },
+          { label: "Date signed", note: "MM/DD/YYYY." },
+          { label: "Daytime phone number", note: "SSA may call to clarify your estimate or request additional documentation." },
+        ],
+      },
+      {
+        title: "What happens next — timeline and follow-up",
+        body: [
+          "SSA targets 30 days for processing, but 60–90 days is common, especially in Q1 (lots of newly Medicare-eligible filers).",
+          "If approved, SSA recalculates your premium and refunds any over-deduction. The refund appears as a credit in your next Social Security check or as a one-time deposit.",
+          "If denied, you have 60 days to request Reconsideration (Form SSA-561). The reconsidered decision can be further appealed to an Administrative Law Judge.",
+          "If you used a current-year estimate, you must file SSA-44 again next year if your actual MAGI ends up different — SSA does NOT automatically reconcile.",
+        ],
+      },
+      {
+        title: "Common reasons SSA-44 appeals are denied (and how to avoid each)",
+        body: [
+          "1. Event isn't a recognized LCE. Solution: confirm against the 8-event list before filing.",
+          "2. Incomplete documentation. Solution: include the specific document type SSA requires for the LCE you claimed (the form's instructions list this on page 2).",
+          "3. Estimated income is unsubstantiated. Solution: write a detailed statement showing the math — e.g., '$2,200/mo Social Security + $850/mo pension * 12 = $36,600 expected MAGI'.",
+          "4. Filing status doesn't match the tax year. Solution: use the status for the year in Step 2, not today's status.",
+          "5. Form version is outdated. Solution: download fresh from ssa.gov each year.",
+        ],
+      },
     ],
     sample: "p. 4 — Form SSA-44 with our example for 'work stoppage' showing exactly which figures go in the modified AGI box.",
   },
@@ -2822,11 +3869,89 @@ function recommendedGuides(answers) {
 
 // ── PDF generator (client-side, no dependencies) ────────────────────────
 // Builds a real, openable PDF 1.4 document from a guide structure.
-// This is a minimal pure-text PDF — production would use a richer library
-// like pdf-lib or jsPDF for screenshots, fonts, layouts. But this proves
-// out the download flow and produces valid, viewable PDF files.
+// Supports multi-page output and renders rich step content (body + fields)
+// with personalization tokens filled from the user's audit answers.
+// Production should swap in pdf-lib/jsPDF for screenshots, fonts, layouts.
 
-function buildPdfBytes(guide, buyerName, buyerEmail) {
+// Resolve personalization tokens like {{stateName}} from the user's answers.
+function buildPersonalizationContext(answers) {
+  const a = answers || {};
+  const stateData = getStateData(a.state);
+  const stateName = stateData ? stateData.name : "your state";
+  const iep = getIEPWindow(a);
+  const by = Number(a.birth_year);
+  const bm = Number(a.birth_month);
+  const birthDate = (by && bm) ? `${MONTHS[bm - 1]} ${by}` : "your birth date";
+  const maritalLabel = a.marital === "couple" ? "married couple" : "single";
+
+  let employerCoverageGuidance = "Your employer-coverage situation determines whether you need Part B now.";
+  let employerCoverageAnswer = "";
+  if (a.employer_coverage === "yes_large") {
+    employerCoverageGuidance = "You have active 20+-employee employer coverage. You can delay Part B without penalty and use a Special Enrollment Period (8 months) when that coverage ends. Form CMS-L564 documents this for SSA.";
+    employerCoverageAnswer = "Yes — 20+ employees";
+  } else if (a.employer_coverage === "yes_small") {
+    employerCoverageGuidance = "You have small-employer coverage (<20 employees). Medicare becomes the primary payer at 65 — your employer plan may pay only what Medicare would have paid. Most people in this situation should enroll in Part B during their IEP.";
+    employerCoverageAnswer = "Yes — under 20 employees";
+  } else if (a.employer_coverage === "no") {
+    employerCoverageGuidance = "You don't have employer coverage. Plan to enroll in both Part A and Part B during your IEP — there's no SEP fallback if you delay.";
+    employerCoverageAnswer = "No";
+  }
+
+  let nextStepsGuidance = "Your Medicare card will arrive in about 3 weeks.";
+  if (iep) {
+    nextStepsGuidance = `Coverage starts ${iep.partBStartLabel}. Your red-white-blue Medicare card arrives ~3 weeks before that date.`;
+  }
+
+  // State-specific MSP guidance for the 8 seeded states. Falls back to generic
+  // language for the other 42. Inlined here per CLAUDE.md decision #7 (avoid
+  // splitting MSP into 7+ separate SKUs — easier to maintain in one place).
+  const STATE_MSP_NOTES = {
+    MD: "Maryland: apply via MD THINK at mymdthink.maryland.gov (the universal benefits portal — also handles SNAP). MD has streamlined enrollment: if you qualify for QMB, you're auto-enrolled in Extra Help. Decision typically arrives in 30 days. Phone help: 1-800-332-6347.",
+    CA: "California: apply through your county's Medi-Cal office (Medi-Cal is California's Medicaid program). Online at benefitscal.com or in person at any county social services office. CA's MSP is called the 'Medicare Savings Program' and is processed through Medi-Cal. Decision: 30–45 days. CA Medicare Advocacy: 1-800-434-0222.",
+    NY: "New York: apply through your county's Department of Social Services or online at nystateofhealth.ny.gov. NY's MSP processing is generally faster than other states (often 2–3 weeks). EPIC (separate NY-only Rx benefit) auto-coordinates if you also qualify for that. Phone: 1-800-541-2831.",
+    FL: "Florida: apply through ACCESS Florida at myaccessflorida.com. FL's MSP review is typically 30 days but backlogs in Q1 can extend it to 60. The state also runs a separate prescription assistance program — ask the caseworker about Florida Discount Drug Card during your application. Phone: 1-866-762-2237.",
+    TX: "Texas: apply via YourTexasBenefits.com (the unified portal for SNAP, MSP, Medicaid, and TANF). TX requires interview by phone or in-person — schedule it when you submit. Decision: 30–45 days. 2-1-1 Texas connects you to a local benefits counselor.",
+    PA: "Pennsylvania: apply via COMPASS at compass.state.pa.us (the universal benefits portal). PA also runs PACE/PACENET — separate state Rx programs that auto-coordinate with MSP approval. PA's processing time is among the fastest in the country (2–4 weeks). Phone: 1-800-692-7462.",
+    VA: "Virginia: apply via CommonHelp at commonhelp.virginia.gov. VA processes MSP through local Department of Social Services offices — your case is assigned to your county's office. Decision: 30–45 days. Phone: 1-855-242-8282.",
+    DC: "DC: apply via the DC Medicaid portal at dchealthlink.com or in person at the Economic Security Administration. DC has the most generous MSP income limits in the region — verify against the current DC-specific thresholds, which exceed federal levels. Phone: 202-727-5355.",
+  };
+  let stateMspGuidance = `${stateName}'s Medicaid agency is your starting point.`;
+  if (a.state && STATE_MSP_NOTES[a.state]) {
+    stateMspGuidance = STATE_MSP_NOTES[a.state];
+  } else if (stateData && stateData.mspApplyUrl) {
+    stateMspGuidance = `Apply at ${stateData.mspApplyUrl}. ${stateName}'s Medicaid agency processes the application. Detailed state-specific guidance for ${stateName} is coming soon — for now, your local SHIP counselor (free at shiphelp.org) is the best resource.`;
+  }
+
+  const monthlyIncome = Number(a.income) || 0;
+  const annualIncome = monthlyIncome > 0 ? `$${(monthlyIncome * 12).toLocaleString()}` : "your annual income";
+  const isCouple = a.marital === "couple";
+
+  return {
+    stateName,
+    birthDate,
+    maritalLabel,
+    partBStartLabel: iep ? iep.partBStartLabel : "the first day of your birth month",
+    iepStart: iep ? iep.startLabel : "3 months before your 65th birthday",
+    iepEnd: iep ? iep.endLabel : "3 months after your 65th birthday",
+    mspApplyUrl: stateData && stateData.mspApplyUrl ? stateData.mspApplyUrl : "your state Medicaid portal",
+    stateMspGuidance,
+    employerCoverageGuidance,
+    employerCoverageAnswer,
+    nextStepsGuidance,
+    currentYear: String(new Date().getFullYear()),
+    annualIncome,
+    filingStatusSingle: isCouple ? "" : "(check this — you're filing single)",
+    filingStatusJoint: isCouple ? "(check this — you're married filing jointly)" : "",
+  };
+}
+
+function fillTokens(text, ctx) {
+  if (!text) return text;
+  return String(text).replace(/\{\{(\w+)\}\}/g, (_, key) => (ctx[key] !== undefined ? ctx[key] : `{{${key}}}`));
+}
+
+function buildPdfBytes(guide, buyerName, buyerEmail, answers) {
+  const ctx = buildPersonalizationContext(answers);
   const lines = [];
 
   // Title page
@@ -2834,7 +3959,8 @@ function buildPdfBytes(guide, buyerName, buyerEmail) {
   lines.push({ size: 11, italic: true, text: "A Cairn Step-by-Step Guide", spaceAfter: 18 });
   lines.push({ size: 12, text: guide.blurb, spaceAfter: 24 });
   lines.push({ size: 10, text: `${guide.pages} pages | ${guide.timeToApply}`, spaceAfter: 8 });
-  lines.push({ size: 10, italic: true, text: `Personalized for ${buyerName || "You"} | ${buyerEmail || ""}`, spaceAfter: 30 });
+  lines.push({ size: 10, italic: true, text: `Personalized for ${buyerName || "You"} | ${buyerEmail || ""}`, spaceAfter: 8 });
+  if (guide.verified) lines.push({ size: 9, italic: true, text: `Last verified: ${guide.verified}`, spaceAfter: 22 });
 
   // What's inside
   lines.push({ size: 14, bold: true, text: "What's inside", spaceAfter: 10 });
@@ -2843,73 +3969,130 @@ function buildPdfBytes(guide, buyerName, buyerEmail) {
   });
   lines.push({ size: 0, text: "", spaceAfter: 18 });
 
-  // Sample preview
+  // Detailed steps (if the guide has them — body + field-by-field)
+  if (Array.isArray(guide.steps) && guide.steps.length > 0) {
+    lines.push({ pageBreak: true });
+    lines.push({ size: 16, bold: true, text: "Step-by-step walkthrough", spaceAfter: 12 });
+    guide.steps.forEach((s, i) => {
+      lines.push({ size: 13, bold: true, text: `${i + 1}. ${fillTokens(s.title, ctx)}`, spaceAfter: 6 });
+      if (Array.isArray(s.body)) {
+        s.body.forEach(b => {
+          lines.push({ size: 11, text: fillTokens(b, ctx), spaceAfter: 6 });
+        });
+      }
+      if (Array.isArray(s.fields) && s.fields.length > 0) {
+        lines.push({ size: 11, italic: true, text: "Fields on this screen:", spaceAfter: 4 });
+        s.fields.forEach(f => {
+          const label = fillTokens(f.label, ctx);
+          const value = f.value ? ` — ${fillTokens(f.value, ctx)}` : "";
+          lines.push({ size: 11, bold: true, text: `  • ${label}${value}`, spaceAfter: 2 });
+          if (f.note) lines.push({ size: 10, italic: true, text: `    ${fillTokens(f.note, ctx)}`, spaceAfter: 4 });
+        });
+      }
+      lines.push({ size: 0, text: "", spaceAfter: 12 });
+    });
+  }
+
+  // Sample preview (kept for parity with the storefront preview text)
   lines.push({ size: 12, bold: true, text: "Sample preview", spaceAfter: 6 });
   lines.push({ size: 10, italic: true, text: guide.sample, spaceAfter: 18 });
 
   // Footer note
-  lines.push({ size: 9, italic: true, text: "(This is a Cairn prototype guide preview. The production version contains annotated screenshots, large 14pt body type, and walks through each application screen-by-screen.)", spaceAfter: 12 });
+  lines.push({ size: 9, italic: true, text: "(This Cairn guide is a starting point. Government portals change frequently — verify each screen against what you actually see and trust the live form over this PDF if they disagree.)", spaceAfter: 12 });
   lines.push({ size: 9, text: "Updated annually | Free updates for 12 months from purchase", spaceAfter: 4 });
   lines.push({ size: 9, text: "(c) 2026 Cairn | Not affiliated with or endorsed by Medicare or any government agency." });
 
-  // Build PDF content stream
-  let y = 760;
+  // Render lines into one or more page streams.
+  const PAGE_TOP = 760;
+  const PAGE_BOTTOM = 60;
+  const pageStreams = [];
   let stream = "BT\n";
+  let y = PAGE_TOP;
+  const startNewPage = () => {
+    stream += "ET\n";
+    pageStreams.push(stream);
+    stream = "BT\n";
+    y = PAGE_TOP;
+  };
+
   for (const line of lines) {
-    if (!line.text) { y -= (line.spaceAfter || 12); continue; }
+    if (line.pageBreak) { startNewPage(); continue; }
+    if (line.text === "" || line.text == null) { y -= (line.spaceAfter || 12); continue; }
     const fontKey = line.bold ? "/F2" : line.italic ? "/F3" : "/F1";
     const fontSize = line.size || 11;
-    // Wrap long lines crudely (approx chars per line based on size)
-    const charsPerLine = Math.max(20, Math.floor(550 / (fontSize * 0.55)));
-    const words = line.text.split(" ");
-    let curLine = "";
+    const charsPerLine = Math.max(20, Math.floor(540 / (fontSize * 0.55)));
+    const paragraphs = String(line.text).split("\n");
     const wrapped = [];
-    for (const w of words) {
-      if ((curLine + " " + w).length > charsPerLine) {
-        wrapped.push(curLine);
-        curLine = w;
-      } else {
-        curLine = curLine ? curLine + " " + w : w;
+    for (const p of paragraphs) {
+      const words = p.split(" ");
+      let curLine = "";
+      for (const w of words) {
+        if ((curLine + " " + w).length > charsPerLine) {
+          wrapped.push(curLine);
+          curLine = w;
+        } else {
+          curLine = curLine ? curLine + " " + w : w;
+        }
       }
+      if (curLine) wrapped.push(curLine);
     }
-    if (curLine) wrapped.push(curLine);
 
     for (const wl of wrapped) {
+      if (y < PAGE_BOTTOM) startNewPage();
       const escaped = wl.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
       stream += `${fontKey} ${fontSize} Tf\n`;
       stream += `1 0 0 1 60 ${y} Tm\n`;
       stream += `(${escaped}) Tj\n`;
       y -= fontSize * 1.4;
-      if (y < 60) break;
     }
     y -= (line.spaceAfter || 4);
   }
   stream += "ET\n";
+  pageStreams.push(stream);
 
-  const streamBytes = new TextEncoder().encode(stream);
-
-  // Assemble PDF (PDF 1.4)
+  // Assemble PDF (PDF 1.4) — multi-page.
+  // Object layout: 1=Catalog, 2=Pages, then for each page: PageObj + ContentObj.
+  // Then 3 font objects at the end.
   let pdf = "%PDF-1.4\n";
   const offsets = [];
   function addObj(s) { offsets.push(pdf.length); pdf += s; }
+  const numPages = pageStreams.length;
+  const pageObjStartId = 3; // page objects start at object id 3
+  const contentObjStartId = pageObjStartId + numPages;
+  const fontF1Id = contentObjStartId + numPages;
+  const fontF2Id = fontF1Id + 1;
+  const fontF3Id = fontF2Id + 1;
+
   addObj("1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n");
-  addObj("2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n");
-  addObj("3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R /F2 6 0 R /F3 7 0 R >> >> >>\nendobj\n");
-  addObj(`4 0 obj\n<< /Length ${streamBytes.length} >>\nstream\n${stream}endstream\nendobj\n`);
-  addObj("5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n");
-  addObj("6 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>\nendobj\n");
-  addObj("7 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Oblique >>\nendobj\n");
+  const kidsList = Array.from({ length: numPages }, (_, i) => `${pageObjStartId + i} 0 R`).join(" ");
+  addObj(`2 0 obj\n<< /Type /Pages /Kids [${kidsList}] /Count ${numPages} >>\nendobj\n`);
+  for (let i = 0; i < numPages; i++) {
+    const pageId = pageObjStartId + i;
+    const contentId = contentObjStartId + i;
+    addObj(`${pageId} 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents ${contentId} 0 R /Resources << /Font << /F1 ${fontF1Id} 0 R /F2 ${fontF2Id} 0 R /F3 ${fontF3Id} 0 R >> >> >>\nendobj\n`);
+  }
+  for (let i = 0; i < numPages; i++) {
+    const contentId = contentObjStartId + i;
+    const s = pageStreams[i];
+    const sBytes = new TextEncoder().encode(s);
+    addObj(`${contentId} 0 obj\n<< /Length ${sBytes.length} >>\nstream\n${s}endstream\nendobj\n`);
+  }
+  addObj(`${fontF1Id} 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n`);
+  addObj(`${fontF2Id} 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>\nendobj\n`);
+  addObj(`${fontF3Id} 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Oblique >>\nendobj\n`);
+
   const xrefOffset = pdf.length;
-  pdf += `xref\n0 8\n0000000000 65535 f \n`;
+  const totalObjs = offsets.length + 1; // +1 for the free entry
+  pdf += `xref\n0 ${totalObjs}\n0000000000 65535 f \n`;
   for (const o of offsets) pdf += String(o).padStart(10, "0") + " 00000 n \n";
-  pdf += `trailer\n<< /Size 8 /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
+  pdf += `trailer\n<< /Size ${totalObjs} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
 
   return new TextEncoder().encode(pdf);
 }
 
-function downloadPdf(guide, buyerName, buyerEmail) {
+function downloadPdf(guide, buyerName, buyerEmail, answers) {
   try {
-    const bytes = buildPdfBytes(guide, buyerName, buyerEmail);
+    const bytes = buildPdfBytes(guide, buyerName, buyerEmail, answers);
     // Convert bytes to base64 for a data URL (iOS-safe inside sandboxed iframes)
     let binary = "";
     for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
@@ -3027,7 +4210,7 @@ function GuideStore({ answers, onBack, onRestart }) {
                         <span style={{ color: C.ink, fontWeight: 500 }}>{g.name}</span>
                       </div>
                       <button
-                        onClick={() => downloadPdf(g, contact.name, contact.email)}
+                        onClick={() => downloadPdf(g, contact.name, contact.email, answers)}
                         style={{
                           display: "inline-flex", alignItems: "center", gap: "0.4rem",
                           background: C.accent, color: "#fff",
