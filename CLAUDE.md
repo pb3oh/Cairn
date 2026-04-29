@@ -23,30 +23,32 @@ Shipped in commit b702420 on branch `claude/review-repo-context-YX7hV`.
 - In-IEP branch (`age 64-65 + not_yet`) renders the user's actual IEP window dates
 - `generateWatchouts` updated with hard-date IEP, late-enrollment %, and Part D penalty alerts
 
-### Milestone 2 — Field-by-field PDF content (4 of 9 guides) — IN PROGRESS
-Shipped in commits b702420 and (this round).
+### Milestone 2 — Field-by-field PDF content (5 of 9 guides) — IN PROGRESS
+Shipped across commits on `claude/review-repo-context-YX7hV`.
 - `medicare_enrollment` (10 steps, full SSA flow) — DONE
 - `extra_help` (5 steps) — DONE
 - `msp` (8 steps, Medicare Savings Programs) — DONE
 - `irmaa_appeal` (10 steps, full SSA-44 walkthrough) — DONE
+- `spdap` (8 steps, Maryland SPDAP) — DONE
 - PDF generator rewritten for multi-page output — DONE
-- Personalization tokens (`{{stateName}}`, `{{partBStartLabel}}`, `{{birthDate}}`, `{{annualIncome}}`, `{{currentYear}}`, `{{filingStatusSingle}}`, `{{filingStatusJoint}}`, etc.) substitute from audit answers — DONE
+- Personalization tokens (`{{stateName}}`, `{{partBStartLabel}}`, `{{birthDate}}`, `{{annualIncome}}`, `{{currentYear}}`, `{{filingStatusSingle}}`, `{{filingStatusJoint}}`, `{{maritalLabel}}`, etc.) substitute from audit answers — DONE
 - `verified: "January 2026"` stamp on title page — DONE
 - `verifyOnLiveForm: true` flag at field level for content that warrants live-form double-check — DONE
 
-### Milestone 3 — Author remaining 5 guides — NOT STARTED
-Estimated ~17-20 hours. Order suggested by impact/effort ratio:
-1. `spdap` (Maryland SPDAP) — small flow, single state — **~3 hrs**
-2. `part_d_pick` (Medicare Plan Finder walkthrough) — **~4 hrs**
-3. `medigap_shop` (5-carrier comparison flow) — **~5 hrs**
-4. `va_aid` (VA Aid & Attendance) — paperwork-heavy, multi-form — **~6 hrs**
-5. State-specific MSP variants for the 7 other seeded states (CA, NY, FL, TX, PA, VA, DC) — **~2 hrs each, ~14 hrs total** (could also be deferred and handled by per-state notes inside the universal MSP guide)
+### Milestone 3 — Author remaining 4 guides — NOT STARTED
+Estimated ~15-17 hours. Order suggested by impact/effort ratio:
+1. `part_d_pick` (Medicare Plan Finder walkthrough) — **~4 hrs**
+2. `medigap_shop` (5-carrier comparison flow) — **~5 hrs**
+3. `va_aid` (VA Aid & Attendance) — paperwork-heavy, multi-form — **~6 hrs**
+4. State-specific MSP variants for the 7 other seeded states (CA, NY, FL, TX, PA, VA, DC) — **~2 hrs each, ~14 hrs total** (could also be deferred and handled by per-state notes inside the universal MSP guide)
 
-### Milestone 4 — Manual QA pass — PARTIAL — **~1.5 hrs remaining**
+### Milestone 4 — Manual QA pass — DEFERRED — **0 hrs (descoped)**
+User chose Option B: accept build + code-review as QA. No browser walkthrough, no headless test.
 - Code-path review across all four user paths (already-enrolled, pre-65 planning, in-IEP, late-enrollment) — DONE
 - Build passes (`vite build` succeeds) — DONE
-- Browser walkthrough — NOT DONE (requires user action: click through each flow at localhost:5173/Cairn/, generate one PDF from each authored guide, confirm conditional questions hide/show correctly)
-- Personalization-token sanity check across all 50 states — NOT DONE (recommend at least 3 spot checks: a seeded state, a non-seeded state, and DC)
+- Browser walkthrough — DESCOPED (user opted out)
+- Headless smoke test — DESCOPED (user opted out)
+- Risk accepted: visual / interaction bugs (CSS regressions, choice-button misfires, PDF download flow on iOS) won't be caught before a real user hits them. Mitigate by spot-checking critical paths after merge to `main`.
 
 ### Milestone 5 — Content verification against live forms — NOT STARTED — **~6-8 hrs**
 The field lists in the 3 authored guides are based on general knowledge of SSA/state Medicaid flows. Before shipping as a paid product, walk each application personally (or have a SHIP counselor review) and reconcile against the live screens. Update field labels, default values, and notes where they diverge.
@@ -77,15 +79,15 @@ Estimated ~40-60 hrs depending on stack choice.
 
 (Status of the original 5 decisions after this session's work:)
 
-1. ~~**Which guide to author next?**~~ — RESOLVED: `irmaa_appeal` chosen and authored. Next: `spdap`.
+1. ~~**Which guide to author next?**~~ — RESOLVED: `irmaa_appeal` and `spdap` both authored. Next: `part_d_pick`.
 2. ~~**Manual QA before more authoring?**~~ — PARTIAL: code-path review done; browser walkthrough still needed (user action).
-3. **Merge to `main`?** — Still pending. Recommendation unchanged: do not merge until the browser walkthrough piece of M4 is complete.
+3. **Merge to `main`?** — Still pending, but M4 is now descoped. Updated recommendation: it's safe to merge after each guide's content lands, since the build+code-review-only QA bar is the same bar future commits will pass. Risk is borne in production.
 4. ~~**PDF library swap (M6) before or after?**~~ — RESOLVED: deferred until all 9 guides are authored.
 5. **Content verification (M5):** Still pending. Two `verifyOnLiveForm: true` flags planted in irmaa_appeal — these are the highest-priority field labels to confirm against the live SSA-44 form when verification happens.
 
 (New decisions surfaced this session:)
 
-6. **Browser walkthrough timing.** Run after each new guide, or batch after all 9 are done? Recommendation: spot-check after each guide (5 minutes) is cheap insurance against framework regressions.
+6. ~~**Browser walkthrough timing.**~~ — RESOLVED: descoped per Option B.
 7. **State-specific MSP variants** (sub-task of M3): inline as state notes inside the universal `msp` guide, or split into 7 separate guides? Recommendation: inline — fewer SKUs, easier maintenance, and the universal MSP already personalizes via `{{stateName}}` and `{{mspApplyUrl}}`.
 
 ## Conventions for ongoing work

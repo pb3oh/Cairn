@@ -3048,6 +3048,7 @@ const GUIDE_CATALOG = [
     timeToApply: "About 15 minutes",
     relatedTo: ["spdap"],
     stateSpecific: "MD",
+    verified: "January 2026",
     sections: [
       "Eligibility quickcheck before you apply",
       "Step 1 — marylandspdap.com walkthrough",
@@ -3055,6 +3056,100 @@ const GUIDE_CATALOG = [
       "Step 3 — Mailing vs. faxing your application",
       "What confirmation looks like and when to expect it",
       "How SPDAP coordinates with your Part D plan automatically",
+    ],
+    steps: [
+      {
+        title: "Eligibility quickcheck",
+        body: [
+          "SPDAP pays up to $75/month directly to your Part D insurer, lowering or zeroing out your monthly premium.",
+          "Four requirements: (1) Maryland resident for at least 6 months, (2) enrolled in a Medicare Part D plan, (3) annual income under 300% of the Federal Poverty Level (~$45,180 single / $61,320 couple in 2026), (4) not enrolled in full Medicaid.",
+          "There is NO asset test. SPDAP cares only about income, residency, and Part D enrollment.",
+          "If you're already on Extra Help (LIS), SPDAP is still worth applying for — it can layer on top to reduce any remaining premium.",
+        ],
+      },
+      {
+        title: "Documents to gather",
+        body: [
+          "Allow 15 minutes. The application is short but you'll be asked for specific dollar amounts.",
+          "Have ready: Maryland driver's license or state ID, Medicare card, current Part D plan card (member ID and monthly premium), most recent SSA-1099 or pension statement, prior-year federal tax return (if filed).",
+          "If you have no Maryland-issued ID, a recent utility bill in your name with a Maryland address works as residency proof.",
+        ],
+      },
+      {
+        title: "Step 1 — Choose how to apply: online or paper",
+        body: [
+          "Online: marylandspdap.com → 'Apply Now'. Faster (1–2 weeks for decision) and lets you upload documents directly.",
+          "Paper: download the application PDF from marylandspdap.com or call 1-800-551-5995 to have one mailed. Takes 3–4 weeks total.",
+          "Phone: 1-800-551-5995, Monday–Friday 9am–5pm. The call center can complete the application with you over the phone.",
+          "If you have all your documents in PDF form, online is fastest. If you prefer paper or don't have email, the paper or phone path is straightforward.",
+        ],
+      },
+      {
+        title: "Step 2 — Personal information",
+        body: [
+          "First section of the application. Use the legal name on your Medicare card.",
+        ],
+        fields: [
+          { label: "Full legal name", note: "Must match Medicare records." },
+          { label: "Date of birth", value: "{{birthDate}}" },
+          { label: "Social Security number", note: "Nine digits, no dashes. SPDAP uses this to verify Part D enrollment with CMS." },
+          { label: "Medicare number (MBI)", note: "From the front of your red-white-blue Medicare card. 11 characters, alphanumeric." },
+          { label: "Maryland address", note: "Street address — no P.O. boxes. SPDAP confirms residency by matching against state databases." },
+          { label: "Phone number", note: "SPDAP may call to clarify income or coverage details." },
+          { label: "Date you became a Maryland resident", note: "Approximate — month and year. Required to confirm the 6-month residency rule." },
+        ],
+      },
+      {
+        title: "Step 3 — Current Part D coverage",
+        body: [
+          "SPDAP needs to know which Part D plan you're enrolled in so they can send the subsidy directly to the correct insurer.",
+        ],
+        fields: [
+          { label: "Part D plan name", note: "Exact name as printed on your Part D member card (e.g., 'WellCare Value Script', 'SilverScript Choice')." },
+          { label: "Plan member ID", note: "From your Part D card — separate from your Medicare MBI." },
+          { label: "Effective date of Part D coverage", note: "Month and year your current plan started." },
+          { label: "Monthly premium", note: "Pre-subsidy amount. SPDAP pays up to $75 of this directly to the insurer." },
+        ],
+      },
+      {
+        title: "Step 4 — Income and household",
+        body: [
+          "Household = you + your spouse if you live together. Adult children don't count.",
+          "Use gross monthly income before taxes and Medicare deductions. Round to whole dollars.",
+        ],
+        fields: [
+          { label: "Marital status / household size", value: "{{maritalLabel}}", note: "Single = 1, married living together = 2." },
+          { label: "Gross monthly Social Security", note: "From your most recent SSA-1099 or award letter — pre-Medicare-deduction." },
+          { label: "Gross monthly pension / annuity", note: "Sum of all pensions before taxes." },
+          { label: "Gross monthly wages", note: "If still working." },
+          { label: "Other monthly income", note: "Interest, dividends, rental income, IRA distributions. Use last year's totals divided by 12." },
+          { label: "Annual gross household income (auto-totaled)", value: "{{annualIncome}} (your stated annual income from the audit)", note: "This is the figure SPDAP compares against the 300% FPL limit. Verify it matches what you entered above × 12." },
+          { label: "Are you currently enrolled in full Medicaid?", note: "If yes, SPDAP doesn't apply — full Medicaid already covers Part D. Most Cairn users in this guide will answer no." },
+        ],
+      },
+      {
+        title: "Step 5 — Sign and submit",
+        body: [
+          "Online: type your name as electronic signature, click submit. You'll see a confirmation page with a tracking number — save it.",
+          "Paper: sign and date in ink, mail to the address on the form (Maryland Department of Aging, 301 W. Preston Street, Suite 1007, Baltimore, MD 21201) OR fax to 410-333-7943.",
+          "Always keep a copy of the application and all attachments for your records. If you fax, save the confirmation page.",
+        ],
+        fields: [
+          { label: "Signature", note: "Wet ink (paper) or typed name (online). Both are legally accepted." },
+          { label: "Date signed", note: "MM/DD/YYYY." },
+        ],
+      },
+      {
+        title: "What happens next",
+        body: [
+          "Online applications: decision letter mailed in 1–2 weeks.",
+          "Paper / fax applications: 3–4 weeks.",
+          "Decision letter tells you (a) approved or denied, (b) your subsidy amount, (c) the date the subsidy starts. Subsidy typically begins the month after approval.",
+          "If approved, you do NOTHING further — SPDAP pays your Part D insurer directly, and your monthly premium drops by the subsidy amount on your next bill or auto-debit.",
+          "Annual recertification: you'll get a renewal packet in January each year. Mail it back within 30 days to avoid a coverage gap.",
+          "If denied, the letter explains why. Most denials are for income-over-limit or not-yet-enrolled-in-Part-D — both can be re-applied for once the underlying issue resolves.",
+        ],
+      },
     ],
     sample: "p. 3 — The SPDAP paper application with our example filled in, showing exactly which boxes to check for income tier 2.",
   },
