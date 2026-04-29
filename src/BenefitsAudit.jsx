@@ -4164,6 +4164,15 @@ function GuideStore({ answers, onBack, onRestart }) {
   const applyCompleteTier = () => setCart(recommendedIds);
   const activeTier = cart.length === 0 ? null : cart.length === 1 ? "single" : cart.length >= recommendedCount ? "complete" : cart.length >= 3 ? "bundle" : null;
 
+  // Suggested tier based on the user's recommended-guide count.
+  // Mirrors the "Suggested based on your answers" pattern from the priority
+  // question — only applies when the user hasn't actively picked a tier yet.
+  // Default is the bundle ($49) — the right call for the typical user with
+  // 3-4 universal + conditional guides recommended.
+  const suggestedTier = recommendedCount >= 5 ? "complete"
+    : recommendedCount <= 1 ? "single"
+    : "bundle";
+
   // Group guides into three categories for clearer hierarchy
   const recommendedGuidesList = GUIDE_CATALOG.filter(g => recommended.has(g.id));
   const universalGuidesList = GUIDE_CATALOG.filter(g => !recommended.has(g.id) && g.universal);
@@ -4465,15 +4474,16 @@ function GuideStore({ answers, onBack, onRestart }) {
                 { id: "complete", price: "$79", qty: `All ${recommendedCount} for you`, note: "Complete kit", apply: applyCompleteTier },
               ].map((p) => {
                 const active = activeTier === p.id;
+                const suggested = !active && !activeTier && suggestedTier === p.id;
                 return (
                   <button
                     key={p.id}
                     onClick={p.apply}
                     style={{
                       background: active ? C.accentSoft : C.paper,
-                      border: `1px solid ${active ? C.accent : C.line}`,
-                      borderLeft: active ? `4px solid ${C.accent}` : `1px solid ${C.line}`,
-                      padding: active ? "0.95rem 0.95rem 0.95rem 0.8rem" : "0.95rem",
+                      border: `1px solid ${active ? C.accent : suggested ? C.accent : C.line}`,
+                      borderLeft: active || suggested ? `4px solid ${C.accent}` : `1px solid ${C.line}`,
+                      padding: active || suggested ? "0.95rem 0.95rem 0.95rem 0.8rem" : "0.95rem",
                       borderRadius: "2px",
                       cursor: "pointer",
                       fontFamily: "inherit",
@@ -4487,6 +4497,11 @@ function GuideStore({ answers, onBack, onRestart }) {
                     </div>
                     <div style={{ fontSize: "0.85rem", color: C.ink, fontWeight: 500 }}>{p.qty}</div>
                     <div style={{ fontSize: "0.76rem", color: C.faint, marginTop: "0.15rem" }}>{p.note}</div>
+                    {suggested && (
+                      <div style={{ marginTop: "0.45rem", display: "inline-flex", alignItems: "center", gap: "0.3rem", fontSize: "0.7rem", color: C.accent, fontFamily: "'Newsreader', serif", fontStyle: "italic", letterSpacing: "0.05em" }}>
+                        <Sparkles size={10} /> Suggested for you
+                      </div>
+                    )}
                   </button>
                 );
               })}
