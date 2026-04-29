@@ -1424,6 +1424,8 @@ export default function BenefitsAudit() {
         .stagger-1 { animation-delay: 0.05s; opacity: 0; }
         .stagger-2 { animation-delay: 0.18s; opacity: 0; }
         .stagger-3 { animation-delay: 0.32s; opacity: 0; }
+        @keyframes carouselSlideIn { from { opacity: 0; transform: translateX(24px); } to { opacity: 1; transform: translateX(0); } }
+        .carousel-slide { animation: carouselSlideIn 0.45s cubic-bezier(0.4, 0, 0.2, 1) forwards; }
         h1, h2, h3, h4 { font-feature-settings: "liga" 1, "dlig" 0, "calt" 1; }
         @media (hover: hover) {
           .choice-btn:hover { background: ${C.ink} !important; color: ${C.bg} !important; border-color: ${C.ink} !important; }
@@ -1452,6 +1454,85 @@ export default function BenefitsAudit() {
       {view === "results" && <Results answers={answers} onRestart={restart} onBookConsultation={() => { setView("consultation"); window.scrollTo(0, 0); }} onViewGuides={() => { setView("guides"); window.scrollTo(0, 0); }} />}
       {view === "consultation" && <Consultation onBack={() => { setView("results"); window.scrollTo(0, 0); }} onRestart={restart} />}
       {view === "guides" && <GuideStore answers={answers} onBack={() => { setView("results"); window.scrollTo(0, 0); }} onRestart={restart} />}
+    </div>
+  );
+}
+
+// Animated testimonial carousel — auto-advances every 6s, pauses on hover,
+// resumes after 12s when user manually clicks a dot. Single card visible at
+// a time, slide-in from the right on each transition.
+function TestimonialCarousel({ items }) {
+  const [index, setIndex] = useState(0);
+  const [paused, setPaused] = useState(false);
+
+  React.useEffect(() => {
+    if (paused) return;
+    const tick = setInterval(() => {
+      setIndex(i => (i + 1) % items.length);
+    }, 6000);
+    return () => clearInterval(tick);
+  }, [paused, items.length]);
+
+  const goTo = (i) => {
+    setIndex(i);
+    setPaused(true);
+    // Resume auto-advance after a longer idle period.
+    setTimeout(() => setPaused(false), 12000);
+  };
+
+  const t = items[index];
+
+  return (
+    <div
+      onMouseEnter={() => setPaused(true)}
+      onMouseLeave={() => setPaused(false)}
+      style={{ maxWidth: "640px", margin: "0 auto" }}
+    >
+      <div style={{ position: "relative", minHeight: "260px" }}>
+        <figure
+          key={index}
+          className="carousel-slide"
+          style={{ margin: 0, padding: "2rem", background: C.bg, border: `1px solid ${C.line}`, borderRadius: "2px", position: "relative" }}
+        >
+          <Quote size={32} style={{ color: C.accent, opacity: 0.25, position: "absolute", top: "1rem", right: "1.25rem" }} />
+          <blockquote style={{ margin: 0, fontFamily: "'Newsreader', serif", fontSize: "1.15rem", lineHeight: 1.45, fontStyle: "italic", color: C.ink, marginBottom: "1.25rem" }}>
+            "{t.quote}"
+          </blockquote>
+          <figcaption style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", paddingTop: "1rem", borderTop: `1px solid ${C.line}` }}>
+            <div>
+              <div style={{ fontWeight: 600, fontSize: "0.9rem", color: C.ink }}>{t.name}</div>
+              <div style={{ fontSize: "0.8rem", color: C.faint, marginTop: "0.15rem" }}>{t.location}</div>
+            </div>
+            <div style={{ textAlign: "right" }}>
+              <div style={{ fontFamily: "'Newsreader', serif", fontStyle: "italic", color: C.accent, fontWeight: 600, fontSize: "1.05rem", lineHeight: 1 }}>{t.saved}</div>
+              <div style={{ fontSize: "0.7rem", color: C.faint, textTransform: "uppercase", letterSpacing: "0.08em", marginTop: "0.25rem" }}>recovered</div>
+            </div>
+          </figcaption>
+        </figure>
+      </div>
+      {/* Dot navigation */}
+      <div style={{ display: "flex", justifyContent: "center", gap: "0.5rem", marginTop: "1.5rem" }}>
+        {items.map((_, i) => {
+          const active = i === index;
+          return (
+            <button
+              key={i}
+              onClick={() => goTo(i)}
+              aria-label={`Show testimonial ${i + 1} of ${items.length}`}
+              style={{
+                width: active ? "26px" : "8px",
+                height: "8px",
+                borderRadius: "4px",
+                border: "none",
+                background: active ? C.accent : C.line,
+                padding: 0,
+                cursor: "pointer",
+                transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+              }}
+            />
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -1603,30 +1684,11 @@ function Landing({ onStart }) {
               Real retirees.<br/><span style={{ fontStyle: "italic", color: C.accent }}>Real recovered benefits.</span>
             </h2>
           </div>
-          <div className="testimonial-grid" style={{ display: "grid", gridTemplateColumns: "1fr", gap: "2rem" }}>
-            {[
-              { quote: "I'd been on Medicare for three years and had no idea I qualified for SLMB. The review found it in two minutes.", name: "Robert and Diane M.", location: "Eastport, Annapolis", saved: "$2,100 / yr" },
-              { quote: "Our advisor never mentioned SPDAP. Cairn's report had it on the first page with the application link.", name: "Frances W.", location: "Severna Park", saved: "$900 / yr" },
-              { quote: "Got my husband's VA Aid & Attendance approved after the review flagged it. We had no clue surviving spouses qualified.", name: "Linda H.", location: "Edgewater", saved: "$1,400 / mo" },
-            ].map((t, i) => (
-              <figure key={i} style={{ margin: 0, padding: "2rem", background: C.bg, border: `1px solid ${C.line}`, borderRadius: "2px", position: "relative" }}>
-                <Quote size={32} style={{ color: C.accent, opacity: 0.25, position: "absolute", top: "1rem", right: "1.25rem" }} />
-                <blockquote style={{ margin: 0, fontFamily: "'Newsreader', serif", fontSize: "1.15rem", lineHeight: 1.45, fontStyle: "italic", color: C.ink, marginBottom: "1.25rem" }}>
-                  "{t.quote}"
-                </blockquote>
-                <figcaption style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", paddingTop: "1rem", borderTop: `1px solid ${C.line}` }}>
-                  <div>
-                    <div style={{ fontWeight: 600, fontSize: "0.9rem", color: C.ink }}>{t.name}</div>
-                    <div style={{ fontSize: "0.8rem", color: C.faint, marginTop: "0.15rem" }}>{t.location}</div>
-                  </div>
-                  <div style={{ textAlign: "right" }}>
-                    <div style={{ fontFamily: "'Newsreader', serif", fontStyle: "italic", color: C.accent, fontWeight: 600, fontSize: "1.05rem", lineHeight: 1 }}>{t.saved}</div>
-                    <div style={{ fontSize: "0.7rem", color: C.faint, textTransform: "uppercase", letterSpacing: "0.08em", marginTop: "0.25rem" }}>recovered</div>
-                  </div>
-                </figcaption>
-              </figure>
-            ))}
-          </div>
+          <TestimonialCarousel items={[
+            { quote: "I'd been on Medicare for three years and had no idea I qualified for SLMB. The review found it in two minutes.", name: "Robert and Diane M.", location: "Eastport, Annapolis", saved: "$2,100 / yr" },
+            { quote: "Our advisor never mentioned SPDAP. Cairn's report had it on the first page with the application link.", name: "Frances W.", location: "Severna Park", saved: "$900 / yr" },
+            { quote: "Got my husband's VA Aid & Attendance approved after the review flagged it. We had no clue surviving spouses qualified.", name: "Linda H.", location: "Edgewater", saved: "$1,400 / mo" },
+          ]} />
         </div>
       </section>
 
@@ -4164,6 +4226,15 @@ function GuideStore({ answers, onBack, onRestart }) {
   const applyCompleteTier = () => setCart(recommendedIds);
   const activeTier = cart.length === 0 ? null : cart.length === 1 ? "single" : cart.length >= recommendedCount ? "complete" : cart.length >= 3 ? "bundle" : null;
 
+  // Suggested tier based on the user's recommended-guide count.
+  // Mirrors the "Suggested based on your answers" pattern from the priority
+  // question — only applies when the user hasn't actively picked a tier yet.
+  // Default is the bundle ($49) — the right call for the typical user with
+  // 3-4 universal + conditional guides recommended.
+  const suggestedTier = recommendedCount >= 5 ? "complete"
+    : recommendedCount <= 1 ? "single"
+    : "bundle";
+
   // Group guides into three categories for clearer hierarchy
   const recommendedGuidesList = GUIDE_CATALOG.filter(g => recommended.has(g.id));
   const universalGuidesList = GUIDE_CATALOG.filter(g => !recommended.has(g.id) && g.universal);
@@ -4465,15 +4536,16 @@ function GuideStore({ answers, onBack, onRestart }) {
                 { id: "complete", price: "$79", qty: `All ${recommendedCount} for you`, note: "Complete kit", apply: applyCompleteTier },
               ].map((p) => {
                 const active = activeTier === p.id;
+                const suggested = !active && !activeTier && suggestedTier === p.id;
                 return (
                   <button
                     key={p.id}
                     onClick={p.apply}
                     style={{
                       background: active ? C.accentSoft : C.paper,
-                      border: `1px solid ${active ? C.accent : C.line}`,
-                      borderLeft: active ? `4px solid ${C.accent}` : `1px solid ${C.line}`,
-                      padding: active ? "0.95rem 0.95rem 0.95rem 0.8rem" : "0.95rem",
+                      border: `1px solid ${active ? C.accent : suggested ? C.accent : C.line}`,
+                      borderLeft: active || suggested ? `4px solid ${C.accent}` : `1px solid ${C.line}`,
+                      padding: active || suggested ? "0.95rem 0.95rem 0.95rem 0.8rem" : "0.95rem",
                       borderRadius: "2px",
                       cursor: "pointer",
                       fontFamily: "inherit",
@@ -4487,6 +4559,11 @@ function GuideStore({ answers, onBack, onRestart }) {
                     </div>
                     <div style={{ fontSize: "0.85rem", color: C.ink, fontWeight: 500 }}>{p.qty}</div>
                     <div style={{ fontSize: "0.76rem", color: C.faint, marginTop: "0.15rem" }}>{p.note}</div>
+                    {suggested && (
+                      <div style={{ marginTop: "0.45rem", display: "inline-flex", alignItems: "center", gap: "0.3rem", fontSize: "0.7rem", color: C.accent, fontFamily: "'Newsreader', serif", fontStyle: "italic", letterSpacing: "0.05em" }}>
+                        <Sparkles size={10} /> Suggested for you
+                      </div>
+                    )}
                   </button>
                 );
               })}
