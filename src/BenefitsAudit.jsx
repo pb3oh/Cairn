@@ -614,6 +614,119 @@ const QUESTIONS = [
   { id: "priority", section: "Goals", question: "What matters most to you?", helper: "Based on your answers, we've suggested the goal most likely to fit. Choose any other if you'd prefer.", type: "choice", options: [{ value: "min_premium", label: "Lowest monthly premium" }, { value: "min_total", label: "Lowest total annual cost" }, { value: "max_choice", label: "Maximum doctor and hospital choice" }, { value: "ltc", label: "Planning for long-term care" }] },
 ];
 
+// ── "Notify me when this guide is ready" — Google Forms stopgap ─────────
+// Lets users opt in to be emailed when programs not yet authored as guides
+// land. Submissions go to a Google Form (free, no backend needed) with a
+// Sheet attached for easy review of demand signal.
+//
+// CONFIGURATION (do once when you've created the form):
+//   1. Create a Google Form with these fields, in any order:
+//        a. Email address — Short answer, required, response validation =
+//           Email.
+//        b. Program — Short answer, optional. Cairn fills this with the
+//           program ID + name (e.g. "nj_paad — New Jersey PAAD").
+//        c. State — Short answer, optional. Cairn fills with the audit
+//           state code (e.g. "NJ").
+//        d. Context — Paragraph, optional. Cairn fills with a small JSON
+//           blob (age, marital, income tier, recommended programs) for
+//           prioritization.
+//   2. Open the form's Send dialog, copy the share link. The form ID is
+//      the long string between /e/ and /viewform.
+//   3. Get a prefilled link (View → Get prefilled link, fill any field,
+//      click Get link). The URL contains entry.NNNNNNNNN parameters —
+//      one per field. Copy each entry ID into FIELDS below.
+//   4. Set ENDPOINT to:
+//        https://docs.google.com/forms/d/e/{FORM_ID}/formResponse
+//   5. Commit & deploy. The "Coming soon" section appears automatically
+//      once ENDPOINT is non-empty.
+const GUIDE_REQUEST_FORM = {
+  endpoint: "", // leave empty to hide the section entirely
+  fields: {
+    email: "entry.0000000000",
+    program: "entry.0000000001",
+    state: "entry.0000000002",
+    context: "entry.0000000003",
+  },
+};
+
+// Programs we're considering authoring as guides. Filtered by showIf so each
+// user only sees the ones plausibly relevant to them. When prioritizing the
+// next guide to author, sort the form responses by program count.
+const COMING_SOON_PROGRAMS = [
+  {
+    id: "ltc_planning",
+    name: "Long-term care planning (Medicaid 5-year lookback)",
+    blurb: "How to time asset transfers years before applying for Medicaid LTSS — the 5-year look-back rule and what counts as a permitted transfer.",
+    showIf: (a) => (a.assets === "high" || a.assets === "mid") || getAge(a) >= 70,
+  },
+  {
+    id: "snap_seniors",
+    name: "SNAP for seniors 60+",
+    blurb: "Senior-specific eligibility shortcuts (no asset limit in many states, simplified application) and the SNAP-Medicaid streamlined enrollment path.",
+    showIf: () => true,
+  },
+  {
+    id: "nj_paad",
+    name: "New Jersey PAAD (Pharmaceutical Assistance to the Aged & Disabled)",
+    blurb: "NJ-only Rx subsidy that pays Part D premiums and copays. Requires NJ residency + income under state limits.",
+    showIf: (a) => a.state === "NJ",
+  },
+  {
+    id: "ny_epic",
+    name: "New York EPIC (Elderly Pharmaceutical Insurance Coverage)",
+    blurb: "NY-only Rx subsidy with two income tiers — fee plan and deductible plan. Auto-coordinates with Part D.",
+    showIf: (a) => a.state === "NY",
+  },
+  {
+    id: "pa_pace_pacenet",
+    name: "Pennsylvania PACE / PACENET",
+    blurb: "PA-only Rx subsidies (PACE for lower-income, PACENET for moderate-income). Auto-coordinates with Part D.",
+    showIf: (a) => a.state === "PA",
+  },
+  {
+    id: "ma_prescription_advantage",
+    name: "Massachusetts Prescription Advantage",
+    blurb: "MA-only Rx subsidy with sliding-scale assistance. Coordinates with Part D and other coverage.",
+    showIf: (a) => a.state === "MA",
+  },
+  {
+    id: "il_circuit_breaker",
+    name: "Illinois Senior Pharmaceutical Assistance",
+    blurb: "Illinois-only Rx subsidy program for seniors meeting income thresholds.",
+    showIf: (a) => a.state === "IL",
+  },
+  {
+    id: "property_tax_credits",
+    name: "Senior property tax credits in your state",
+    blurb: "How to apply for senior homestead exemptions and circuit-breaker credits — varies by state and county.",
+    showIf: (a) => a.homeowner === "yes",
+  },
+  {
+    id: "va_disability",
+    name: "VA disability compensation (different from A&A pension)",
+    blurb: "Service-connected disability rating walkthrough — Form 21-526EZ. Tax-free monthly benefit, often missed by veterans focused only on pension.",
+    showIf: (a) => a.veteran === "yes",
+  },
+  {
+    id: "survivor_pension_dic",
+    name: "VA Survivors Pension / DIC (Dependency and Indemnity Compensation)",
+    blurb: "For surviving spouses of veterans whose death was service-connected. Form 21P-534EZ + DD-214.",
+    showIf: (a) => a.veteran === "yes",
+  },
+  {
+    id: "aca_pre65",
+    name: "ACA marketplace bridge for pre-65 retirees",
+    blurb: "How to bridge from employer coverage to Medicare without going broke on premiums — subsidies, special enrollment, and the 60–64 income-management strategy.",
+    showIf: (a) => getAge(a) > 0 && getAge(a) < 65 && a.medicare_status === "not_yet",
+  },
+  {
+    id: "credit_for_elderly",
+    name: "Federal Credit for the Elderly (Schedule R)",
+    blurb: "An overlooked federal tax credit for retirees 65+ with limited Social Security and pension income. Up to $1,125 reduction in tax owed.",
+    showIf: (a) => Number(a.income) > 0 && Number(a.income) < 3000,
+  },
+];
+
 function evaluate(answers) {
   const findings = [];
   const isCouple = answers.marital === "couple";
@@ -2272,6 +2385,116 @@ function Audit({ step, setStep, answers, setAnswers, onComplete, onExit }) {
   );
 }
 
+// "Coming soon" guide-request capture. Filters COMING_SOON_PROGRAMS by each
+// program's showIf(answers) predicate so users only see plausibly-relevant
+// items. Submits silently to a Google Form (no-cors) — the response is opaque
+// to JS but lands in the form's Sheet. UI hides entirely if the form endpoint
+// hasn't been configured yet.
+function NotifyMeSection({ answers }) {
+  const visiblePrograms = COMING_SOON_PROGRAMS.filter(p => !p.showIf || p.showIf(answers));
+  const [submitted, setSubmitted] = useState({}); // map of programId -> email
+  const [emails, setEmails] = useState({}); // map of programId -> draft email
+  const [errors, setErrors] = useState({}); // map of programId -> error string
+
+  if (!GUIDE_REQUEST_FORM.endpoint || visiblePrograms.length === 0) return null;
+
+  const buildContext = () => {
+    const ctx = {
+      age: getAge(answers),
+      marital: answers.marital,
+      assets: answers.assets,
+      income_monthly: answers.income,
+      medicare_status: answers.medicare_status,
+      veteran: answers.veteran,
+      homeowner: answers.homeowner,
+      recommended: recommendedGuides(answers),
+    };
+    return JSON.stringify(ctx);
+  };
+
+  const submit = async (program) => {
+    const email = (emails[program.id] || "").trim();
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setErrors(e => ({ ...e, [program.id]: "Enter a valid email address." }));
+      return;
+    }
+    setErrors(e => ({ ...e, [program.id]: "" }));
+
+    const body = new URLSearchParams();
+    body.append(GUIDE_REQUEST_FORM.fields.email, email);
+    body.append(GUIDE_REQUEST_FORM.fields.program, `${program.id} — ${program.name}`);
+    body.append(GUIDE_REQUEST_FORM.fields.state, answers.state || "");
+    body.append(GUIDE_REQUEST_FORM.fields.context, buildContext());
+
+    try {
+      // Google Forms doesn't return CORS-friendly responses; no-cors makes
+      // the request fire-and-forget. The form still records the submission.
+      await fetch(GUIDE_REQUEST_FORM.endpoint, {
+        method: "POST",
+        mode: "no-cors",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: body.toString(),
+      });
+      setSubmitted(s => ({ ...s, [program.id]: email }));
+    } catch (e) {
+      // Even errors are unreliable in no-cors mode; treat any thrown error
+      // as a real failure and show a fallback.
+      setErrors(err => ({ ...err, [program.id]: "Couldn't submit. Please try again." }));
+    }
+  };
+
+  return (
+    <section style={{ marginTop: "3rem", paddingTop: "2.5rem", borderTop: `1px solid ${C.line}` }}>
+      <SectionLabel>More we're working on</SectionLabel>
+      <h2 style={{ fontFamily: "'Newsreader', serif", fontSize: "clamp(1.5rem, 3.5vw, 2rem)", lineHeight: 1.2, fontWeight: 500, letterSpacing: "-0.02em", marginBottom: "0.65rem", color: C.ink }}>
+        Programs we're considering authoring next.
+      </h2>
+      <p style={{ color: C.muted, fontSize: "1rem", marginBottom: "2rem", lineHeight: 1.5 }}>
+        These aren't ready yet. Tap "Notify me" on any that interest you and we'll email when the guide is published.
+      </p>
+      <div style={{ display: "flex", flexDirection: "column", gap: "0.85rem" }}>
+        {visiblePrograms.map(p => {
+          const done = submitted[p.id];
+          const draftEmail = emails[p.id] || "";
+          const err = errors[p.id];
+          return (
+            <div key={p.id} style={{ background: C.paper, border: `1px solid ${C.line}`, borderLeft: done ? `3px solid ${C.accent}` : `1px solid ${C.line}`, padding: "1.1rem 1.25rem", borderRadius: "2px" }}>
+              <h3 style={{ fontFamily: "'Newsreader', serif", fontSize: "1.05rem", fontWeight: 600, color: C.ink, margin: "0 0 0.4rem 0", lineHeight: 1.3 }}>{p.name}</h3>
+              <p style={{ fontSize: "0.88rem", color: C.muted, lineHeight: 1.5, margin: "0 0 0.85rem 0" }}>{p.blurb}</p>
+              {done ? (
+                <div style={{ display: "inline-flex", alignItems: "center", gap: "0.4rem", fontSize: "0.85rem", color: C.accent, fontFamily: "'Newsreader', serif", fontStyle: "italic" }}>
+                  <Check size={14} /> Got it — we'll email <strong style={{ fontStyle: "normal" }}>{done}</strong> when this guide is ready.
+                </div>
+              ) : (
+                <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "stretch" }}>
+                  <input
+                    type="email"
+                    value={draftEmail}
+                    onChange={e => setEmails(s => ({ ...s, [p.id]: e.target.value }))}
+                    placeholder="your@email.com"
+                    style={{ flex: 1, minWidth: "180px", padding: "0.55rem 0.75rem", fontSize: "0.9rem", fontFamily: "inherit", border: `1px solid ${err ? "#c2453a" : C.line}`, borderRadius: "2px", background: C.paper, outline: "none", color: C.ink }}
+                    onFocus={e => { if (!err) e.target.style.borderColor = C.accent; }}
+                    onBlur={e => { e.target.style.borderColor = err ? "#c2453a" : C.line; }}
+                  />
+                  <button
+                    onClick={() => submit(p)}
+                    style={{ background: C.ink, color: C.bg, border: "none", padding: "0.55rem 1rem", fontSize: "0.85rem", fontFamily: "inherit", fontWeight: 500, cursor: "pointer", borderRadius: "2px", display: "inline-flex", alignItems: "center", gap: "0.4rem" }}
+                  >
+                    <Mail size={13} /> Notify me
+                  </button>
+                </div>
+              )}
+              {err && !done && (
+                <div style={{ marginTop: "0.5rem", fontSize: "0.8rem", color: "#c2453a" }}>{err}</div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 function Results({ answers, onRestart, onBookConsultation, onViewGuides }) {
   const result = useMemo(() => evaluate(answers), [answers]);
   return (
@@ -2429,6 +2652,8 @@ function Results({ answers, onRestart, onBookConsultation, onViewGuides }) {
               </div>
             </div>
           </section>
+
+          <NotifyMeSection answers={answers} />
 
           <footer style={{ marginTop: "3rem", paddingTop: "1.5rem", borderTop: `1px solid ${C.line}`, fontSize: "0.8rem", color: C.faint, lineHeight: 1.6 }}>
             <p style={{ margin: 0 }}>
