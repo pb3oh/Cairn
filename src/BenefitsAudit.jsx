@@ -529,6 +529,24 @@ const MONTHS = [
   "July", "August", "September", "October", "November", "December",
 ];
 
+const STALE_THRESHOLD_DAYS = 120;
+
+// True when a guide hasn't been re-verified within STALE_THRESHOLD_DAYS.
+// Guides without a `verified` field fall back to "not stale" (assume freshness
+// hasn't been claimed). The verified field stores a "Month YYYY" string.
+function isGuideStale(guide) {
+  if (!guide || !guide.verified) return false;
+  const parts = String(guide.verified).split(" ");
+  if (parts.length < 2) return false;
+  const monthIndex = MONTHS.indexOf(parts[0]);
+  const year = Number(parts[parts.length - 1]);
+  if (monthIndex < 0 || !year) return false;
+  // Treat the verification as having happened on the 1st of that month.
+  const verifiedAt = new Date(year, monthIndex, 1).getTime();
+  const ageDays = (Date.now() - verifiedAt) / (1000 * 60 * 60 * 24);
+  return ageDays > STALE_THRESHOLD_DAYS;
+}
+
 function getAge(a) {
   // Prefer derived age from birth_year/birth_month; fall back to legacy age field.
   const by = Number(a && a.birth_year);
@@ -4012,184 +4030,196 @@ function fillTokens(text, ctx) {
   return String(text).replace(/\{\{(\w+)\}\}/g, (_, key) => (ctx[key] !== undefined ? ctx[key] : `{{${key}}}`));
 }
 
-function buildPdfBytes(guide, buyerName, buyerEmail, answers) {
-  const ctx = buildPersonalizationContext(answers);
-  const lines = [];
+// React-PDF document component for the printable Cairn guide.
+// Primitives are dynamic-imported in downloadPdf and passed in here so the
+// heavy renderer (~150KB) only loads when a user clicks Download.
+function buildCairnDocument({ guide, ctx, buyerName, buyerEmail, primitives }) {
+  const { Document, Page, View, Text, StyleSheet } = primitives;
 
-  // Title page
-  lines.push({ size: 22, bold: true, text: guide.name });
-  lines.push({ size: 11, italic: true, text: "A Cairn Step-by-Step Guide", spaceAfter: 18 });
-  lines.push({ size: 12, text: guide.blurb, spaceAfter: 24 });
-  lines.push({ size: 10, text: `${guide.pages} pages | ${guide.timeToApply}`, spaceAfter: 8 });
-  lines.push({ size: 10, italic: true, text: `Personalized for ${buyerName || "You"} | ${buyerEmail || ""}`, spaceAfter: 8 });
-  if (guide.verified) lines.push({ size: 9, italic: true, text: `Last verified: ${guide.verified}`, spaceAfter: 22 });
+  const styles = StyleSheet.create({
+    page: { paddingTop: 60, paddingBottom: 60, paddingHorizontal: 56, backgroundColor: "#f5f1ea", fontFamily: "Helvetica", color: "#1f4e52" },
+    pageHeader: { position: "absolute", top: 28, left: 56, right: 56, flexDirection: "row", justifyContent: "space-between", fontSize: 9, color: "#7a8a8c", borderBottomWidth: 0.5, borderBottomColor: "#dcd4c5", paddingBottom: 6 },
+    pageNumber: { position: "absolute", bottom: 28, right: 56, fontSize: 9, color: "#7a8a8c" },
+    watermark: { position: "absolute", bottom: 28, left: 56, fontSize: 8, color: "#a8b3b5", fontFamily: "Helvetica-Oblique" },
 
-  // What's inside
-  lines.push({ size: 14, bold: true, text: "What's inside", spaceAfter: 10 });
-  guide.sections.forEach((s, i) => {
-    lines.push({ size: 11, text: `${i + 1}. ${s}`, spaceAfter: 4 });
+    coverWrap: { marginTop: 100 },
+    coverWordmark: { fontFamily: "Times-Roman", fontSize: 14, color: "#0f3a3d", marginBottom: 4, letterSpacing: 2 },
+    coverEyebrow: { fontFamily: "Times-Italic", fontSize: 11, color: "#e85a4f", marginBottom: 28, letterSpacing: 1 },
+    coverHeadline: { fontFamily: "Times-Bold", fontSize: 30, lineHeight: 1.15, color: "#0f3a3d", marginBottom: 16 },
+    coverBlurb: { fontSize: 12, color: "#4a5d5f", lineHeight: 1.55, marginBottom: 32, maxWidth: 420 },
+    coverMetaRow: { flexDirection: "row", marginBottom: 6, color: "#7a8a8c", fontSize: 10 },
+    coverMetaItem: { marginRight: 14 },
+    coverPersonalized: { fontSize: 10, color: "#0f3a3d", fontFamily: "Helvetica-Oblique", marginTop: 32, borderTopWidth: 1, borderTopColor: "#dcd4c5", paddingTop: 14 },
+
+    sectionTitle: { fontFamily: "Times-Bold", fontSize: 18, color: "#0f3a3d", marginBottom: 14, paddingBottom: 6, borderBottomWidth: 1, borderBottomColor: "#dcd4c5" },
+
+    tocItem: { flexDirection: "row", marginBottom: 8, alignItems: "flex-start" },
+    tocNum: { width: 24, color: "#e85a4f", fontFamily: "Helvetica-Bold", fontSize: 11 },
+    tocText: { flex: 1, fontSize: 11, color: "#0f3a3d", lineHeight: 1.4 },
+
+    stepBlock: { marginBottom: 18 },
+    stepHeader: { flexDirection: "row", alignItems: "baseline", marginBottom: 8 },
+    stepNumber: { fontFamily: "Times-Bold", fontSize: 14, color: "#e85a4f", marginRight: 8 },
+    stepTitle: { fontFamily: "Times-Bold", fontSize: 14, color: "#0f3a3d", flex: 1 },
+    stepBody: { fontSize: 11, color: "#1f4e52", lineHeight: 1.55, marginBottom: 6 },
+
+    fieldsLabel: { fontFamily: "Helvetica-Oblique", fontSize: 9, color: "#7a8a8c", textTransform: "uppercase", letterSpacing: 0.6, marginTop: 8, marginBottom: 5 },
+    fieldRow: { backgroundColor: "#ffffff", borderLeftWidth: 2, borderLeftColor: "#e85a4f", paddingLeft: 8, paddingRight: 6, paddingVertical: 5, marginBottom: 4 },
+    fieldLabel: { fontFamily: "Helvetica-Bold", fontSize: 10, color: "#0f3a3d" },
+    fieldValue: { fontFamily: "Helvetica", fontSize: 10, color: "#0f3a3d" },
+    fieldNote: { fontFamily: "Helvetica-Oblique", fontSize: 9, color: "#4a5d5f", marginTop: 2, lineHeight: 1.4 },
+
+    samplePanel: { backgroundColor: "#fce7e3", borderLeftWidth: 3, borderLeftColor: "#e85a4f", padding: 12, marginTop: 18 },
+    sampleLabel: { fontFamily: "Times-Italic", fontSize: 9, color: "#e85a4f", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 5 },
+    sampleText: { fontSize: 10, color: "#0f3a3d", lineHeight: 1.5 },
+
+    footerCol: { marginTop: 28, borderTopWidth: 1, borderTopColor: "#dcd4c5", paddingTop: 12 },
+    footerText: { fontSize: 8, color: "#7a8a8c", lineHeight: 1.5, marginBottom: 4 },
   });
-  lines.push({ size: 0, text: "", spaceAfter: 18 });
 
-  // Detailed steps (if the guide has them — body + field-by-field)
-  if (Array.isArray(guide.steps) && guide.steps.length > 0) {
-    lines.push({ pageBreak: true });
-    lines.push({ size: 16, bold: true, text: "Step-by-step walkthrough", spaceAfter: 12 });
-    guide.steps.forEach((s, i) => {
-      lines.push({ size: 13, bold: true, text: `${i + 1}. ${fillTokens(s.title, ctx)}`, spaceAfter: 6 });
-      if (Array.isArray(s.body)) {
-        s.body.forEach(b => {
-          lines.push({ size: 11, text: fillTokens(b, ctx), spaceAfter: 6 });
-        });
-      }
-      if (Array.isArray(s.fields) && s.fields.length > 0) {
-        lines.push({ size: 11, italic: true, text: "Fields on this screen:", spaceAfter: 4 });
-        s.fields.forEach(f => {
-          const label = fillTokens(f.label, ctx);
-          const value = f.value ? ` — ${fillTokens(f.value, ctx)}` : "";
-          lines.push({ size: 11, bold: true, text: `  • ${label}${value}`, spaceAfter: 2 });
-          if (f.note) lines.push({ size: 10, italic: true, text: `    ${fillTokens(f.note, ctx)}`, spaceAfter: 4 });
-        });
-      }
-      lines.push({ size: 0, text: "", spaceAfter: 12 });
-    });
-  }
+  // Lightweight per-buyer license code so the watermark is identifying without
+  // exposing more PII than the email itself does.
+  const licenseSeed = (buyerEmail || guide.id || "").toLowerCase();
+  let licenseHash = 0;
+  for (let i = 0; i < licenseSeed.length; i++) licenseHash = ((licenseHash << 5) - licenseHash + licenseSeed.charCodeAt(i)) | 0;
+  const licenseCode = Math.abs(licenseHash).toString(36).slice(0, 6).toUpperCase().padStart(6, "X");
+  const purchaseDate = new Date().toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+  const watermarkText = `${buyerName || "Personal copy"}${buyerEmail ? "  ·  " + buyerEmail : ""}  ·  ${purchaseDate}  ·  License ${licenseCode}`;
 
-  // Sample preview (kept for parity with the storefront preview text)
-  lines.push({ size: 12, bold: true, text: "Sample preview", spaceAfter: 6 });
-  lines.push({ size: 10, italic: true, text: guide.sample, spaceAfter: 18 });
+  const Header = () => (
+    <View style={styles.pageHeader} fixed>
+      <Text>Cairn  ·  {guide.name}</Text>
+      <Text>{guide.verified ? `Verified ${guide.verified}` : ""}</Text>
+    </View>
+  );
+  const Footer = () => (
+    <>
+      <Text style={styles.watermark} fixed>{watermarkText}</Text>
+      <Text style={styles.pageNumber} render={({ pageNumber, totalPages }) => `${pageNumber} / ${totalPages}`} fixed />
+    </>
+  );
 
-  // Footer note
-  lines.push({ size: 9, italic: true, text: "(This Cairn guide is a starting point. Government portals change frequently — verify each screen against what you actually see and trust the live form over this PDF if they disagree.)", spaceAfter: 12 });
-  lines.push({ size: 9, text: "Updated annually | Free updates for 12 months from purchase", spaceAfter: 4 });
-  lines.push({ size: 9, text: "(c) 2026 Cairn | Not affiliated with or endorsed by Medicare or any government agency." });
+  return (
+    <Document title={guide.name} author="Cairn" subject={guide.blurb}>
+      {/* COVER */}
+      <Page size="LETTER" style={styles.page}>
+        <View style={styles.coverWrap}>
+          <Text style={styles.coverWordmark}>CAIRN</Text>
+          <Text style={styles.coverEyebrow}>A step-by-step guide</Text>
+          <Text style={styles.coverHeadline}>{guide.name}</Text>
+          <Text style={styles.coverBlurb}>{guide.blurb}</Text>
+          <View style={styles.coverMetaRow}>
+            <Text style={styles.coverMetaItem}>{guide.pages} pages</Text>
+            <Text style={styles.coverMetaItem}>·  {guide.timeToApply}</Text>
+            {guide.verified ? <Text style={styles.coverMetaItem}>·  Verified {guide.verified}</Text> : null}
+          </View>
+          <Text style={styles.coverPersonalized}>
+            Personalized for {buyerName || "You"}{buyerEmail ? `  ·  ${buyerEmail}` : ""}
+          </Text>
+        </View>
+        <Footer />
+      </Page>
 
-  // Render lines into one or more page streams.
-  const PAGE_TOP = 760;
-  const PAGE_BOTTOM = 60;
-  const pageStreams = [];
-  let stream = "BT\n";
-  let y = PAGE_TOP;
-  const startNewPage = () => {
-    stream += "ET\n";
-    pageStreams.push(stream);
-    stream = "BT\n";
-    y = PAGE_TOP;
-  };
+      {/* CONTENTS */}
+      <Page size="LETTER" style={styles.page}>
+        <Header />
+        <View style={{ marginTop: 36 }}>
+          <Text style={styles.sectionTitle}>What's inside</Text>
+          {guide.sections.map((s, i) => (
+            <View key={i} style={styles.tocItem}>
+              <Text style={styles.tocNum}>{String(i + 1).padStart(2, "0")}</Text>
+              <Text style={styles.tocText}>{s}</Text>
+            </View>
+          ))}
+        </View>
+        <Footer />
+      </Page>
 
-  for (const line of lines) {
-    if (line.pageBreak) { startNewPage(); continue; }
-    if (line.text === "" || line.text == null) { y -= (line.spaceAfter || 12); continue; }
-    const fontKey = line.bold ? "/F2" : line.italic ? "/F3" : "/F1";
-    const fontSize = line.size || 11;
-    const charsPerLine = Math.max(20, Math.floor(540 / (fontSize * 0.55)));
-    const paragraphs = String(line.text).split("\n");
-    const wrapped = [];
-    for (const p of paragraphs) {
-      const words = p.split(" ");
-      let curLine = "";
-      for (const w of words) {
-        if ((curLine + " " + w).length > charsPerLine) {
-          wrapped.push(curLine);
-          curLine = w;
-        } else {
-          curLine = curLine ? curLine + " " + w : w;
-        }
-      }
-      if (curLine) wrapped.push(curLine);
-    }
-
-    for (const wl of wrapped) {
-      if (y < PAGE_BOTTOM) startNewPage();
-      const escaped = wl.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
-      stream += `${fontKey} ${fontSize} Tf\n`;
-      stream += `1 0 0 1 60 ${y} Tm\n`;
-      stream += `(${escaped}) Tj\n`;
-      y -= fontSize * 1.4;
-    }
-    y -= (line.spaceAfter || 4);
-  }
-  stream += "ET\n";
-  pageStreams.push(stream);
-
-  // Assemble PDF (PDF 1.4) — multi-page.
-  // Object layout: 1=Catalog, 2=Pages, then for each page: PageObj + ContentObj.
-  // Then 3 font objects at the end.
-  let pdf = "%PDF-1.4\n";
-  const offsets = [];
-  function addObj(s) { offsets.push(pdf.length); pdf += s; }
-  const numPages = pageStreams.length;
-  const pageObjStartId = 3; // page objects start at object id 3
-  const contentObjStartId = pageObjStartId + numPages;
-  const fontF1Id = contentObjStartId + numPages;
-  const fontF2Id = fontF1Id + 1;
-  const fontF3Id = fontF2Id + 1;
-
-  addObj("1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n");
-  const kidsList = Array.from({ length: numPages }, (_, i) => `${pageObjStartId + i} 0 R`).join(" ");
-  addObj(`2 0 obj\n<< /Type /Pages /Kids [${kidsList}] /Count ${numPages} >>\nendobj\n`);
-  for (let i = 0; i < numPages; i++) {
-    const pageId = pageObjStartId + i;
-    const contentId = contentObjStartId + i;
-    addObj(`${pageId} 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents ${contentId} 0 R /Resources << /Font << /F1 ${fontF1Id} 0 R /F2 ${fontF2Id} 0 R /F3 ${fontF3Id} 0 R >> >> >>\nendobj\n`);
-  }
-  for (let i = 0; i < numPages; i++) {
-    const contentId = contentObjStartId + i;
-    const s = pageStreams[i];
-    const sBytes = new TextEncoder().encode(s);
-    addObj(`${contentId} 0 obj\n<< /Length ${sBytes.length} >>\nstream\n${s}endstream\nendobj\n`);
-  }
-  addObj(`${fontF1Id} 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n`);
-  addObj(`${fontF2Id} 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>\nendobj\n`);
-  addObj(`${fontF3Id} 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Oblique >>\nendobj\n`);
-
-  const xrefOffset = pdf.length;
-  const totalObjs = offsets.length + 1; // +1 for the free entry
-  pdf += `xref\n0 ${totalObjs}\n0000000000 65535 f \n`;
-  for (const o of offsets) pdf += String(o).padStart(10, "0") + " 00000 n \n";
-  pdf += `trailer\n<< /Size ${totalObjs} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
-
-  return new TextEncoder().encode(pdf);
+      {/* STEP-BY-STEP WALKTHROUGH */}
+      {Array.isArray(guide.steps) && guide.steps.length > 0 && (
+        <Page size="LETTER" style={styles.page}>
+          <Header />
+          <View style={{ marginTop: 36 }}>
+            <Text style={styles.sectionTitle}>Step-by-step walkthrough</Text>
+            {guide.steps.map((s, i) => (
+              <View key={i} style={styles.stepBlock} wrap>
+                <View style={styles.stepHeader}>
+                  <Text style={styles.stepNumber}>{String(i + 1).padStart(2, "0")}</Text>
+                  <Text style={styles.stepTitle}>{fillTokens(s.title, ctx)}</Text>
+                </View>
+                {Array.isArray(s.body) && s.body.map((b, bi) => (
+                  <Text key={bi} style={styles.stepBody}>{fillTokens(b, ctx)}</Text>
+                ))}
+                {Array.isArray(s.fields) && s.fields.length > 0 && (
+                  <>
+                    <Text style={styles.fieldsLabel}>Fields on this screen</Text>
+                    {s.fields.map((f, fi) => (
+                      <View key={fi} style={styles.fieldRow}>
+                        <Text>
+                          <Text style={styles.fieldLabel}>{fillTokens(f.label, ctx)}</Text>
+                          {f.value ? <Text style={styles.fieldValue}>  —  {fillTokens(f.value, ctx)}</Text> : null}
+                        </Text>
+                        {f.note ? <Text style={styles.fieldNote}>{fillTokens(f.note, ctx)}</Text> : null}
+                      </View>
+                    ))}
+                  </>
+                )}
+              </View>
+            ))}
+            <View style={styles.samplePanel}>
+              <Text style={styles.sampleLabel}>Sample preview</Text>
+              <Text style={styles.sampleText}>{guide.sample}</Text>
+            </View>
+            <View style={styles.footerCol}>
+              <Text style={styles.footerText}>This Cairn guide is a starting point. Government portals change frequently — verify each screen against what you actually see and trust the live form over this PDF if they disagree.</Text>
+              <Text style={styles.footerText}>{guide.verified ? `Last verified: ${guide.verified}.` : ""} Free updates included with your purchase tier.</Text>
+              <Text style={styles.footerText}>© 2026 Cairn  ·  Not affiliated with or endorsed by Medicare or any government agency.</Text>
+            </View>
+          </View>
+          <Footer />
+        </Page>
+      )}
+    </Document>
+  );
 }
 
-function downloadPdf(guide, buyerName, buyerEmail, answers) {
+async function downloadPdf(guide, buyerName, buyerEmail, answers) {
   try {
-    const bytes = buildPdfBytes(guide, buyerName, buyerEmail, answers);
-    // Convert bytes to base64 for a data URL (iOS-safe inside sandboxed iframes)
-    let binary = "";
-    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-    const base64 = btoa(binary);
-    const dataUrl = `data:application/pdf;base64,${base64}`;
+    // Lazy-load react-pdf so the renderer (~150KB) only ships when needed.
+    const reactPdf = await import("@react-pdf/renderer");
+    const ctx = buildPersonalizationContext(answers);
+    const docElement = buildCairnDocument({ guide, ctx, buyerName, buyerEmail, primitives: reactPdf });
+    const blob = await reactPdf.pdf(docElement).toBlob();
+    const url = URL.createObjectURL(blob);
     const filename = `Cairn-Guide-${guide.id}.pdf`;
 
     const ua = navigator.userAgent || "";
     const isIOS = /iPad|iPhone|iPod/.test(ua) && !window.MSStream;
 
     if (isIOS) {
-      // iOS: open data URL in new window — Safari renders PDF inline,
-      // user can then use the share sheet to save to Files
+      // iOS: open in new window — Safari renders PDF inline, user can save via share sheet
       const w = window.open();
       if (w) {
         w.document.write(
           `<html><head><title>${guide.name}</title></head>` +
-          `<body style="margin:0;background:#333"><embed src="${dataUrl}" type="application/pdf" width="100%" height="100%" style="height:100vh"/></body></html>`
+          `<body style="margin:0;background:#333"><embed src="${url}" type="application/pdf" width="100%" height="100%" style="height:100vh"/></body></html>`
         );
         w.document.close();
       } else {
-        // Popup blocked — navigate same window as last resort
-        window.location.href = dataUrl;
+        window.location.href = url;
       }
       return;
     }
 
-    // Desktop / Android: anchor download
+    // Desktop / Android: anchor-tag download
     const a = document.createElement("a");
-    a.href = dataUrl;
+    a.href = url;
     a.download = filename;
     a.rel = "noopener";
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
   } catch (e) {
     console.error("PDF generation error:", e);
     alert("Couldn't generate PDF in this preview. Try opening on desktop, or contact support if this persists.\n\nError: " + e.message);
@@ -4531,9 +4561,9 @@ function GuideStore({ answers, onBack, onRestart }) {
             </p>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "0.6rem" }}>
               {[
-                { id: "single", price: "$19", qty: "1 guide", note: "Single program", apply: applySingleTier },
-                { id: "bundle", price: "$49", qty: "3+ guides", note: "Bundle pricing", apply: applyBundleTier },
-                { id: "complete", price: "$79", qty: `All ${recommendedCount} for you`, note: "Complete kit", apply: applyCompleteTier },
+                { id: "single", price: "$19", qty: "1 guide", note: "90 days of free updates", apply: applySingleTier },
+                { id: "bundle", price: "$49", qty: "3+ guides", note: "120 days of free updates", apply: applyBundleTier },
+                { id: "complete", price: "$79", qty: `All ${recommendedCount} for you`, note: "180 days of free updates", apply: applyCompleteTier },
               ].map((p) => {
                 const active = activeTier === p.id;
                 const suggested = !active && !activeTier && suggestedTier === p.id;
@@ -4588,7 +4618,17 @@ function GuideStore({ answers, onBack, onRestart }) {
                     <div style={{ display: "flex", gap: "1rem", alignItems: "center", color: C.faint, fontSize: "0.78rem", marginBottom: "0.6rem", flexWrap: "wrap" }}>
                       <span style={{ display: "flex", alignItems: "center", gap: "0.3rem" }}><FileText size={11} /> {g.pages} pages</span>
                       <span style={{ display: "flex", alignItems: "center", gap: "0.3rem" }}><Clock size={11} /> {g.timeToApply}</span>
+                      {g.verified && (
+                        <span style={{ display: "flex", alignItems: "center", gap: "0.3rem", color: isGuideStale(g) ? C.accent : C.faint }}>
+                          <Shield size={11} /> Verified {g.verified}
+                        </span>
+                      )}
                     </div>
+                    {isGuideStale(g) && (
+                      <div style={{ fontSize: "0.78rem", color: C.accent, background: C.accentSoft, border: `1px solid ${C.accent}`, borderLeft: `3px solid ${C.accent}`, borderRadius: "2px", padding: "0.5rem 0.7rem", marginBottom: "0.75rem", lineHeight: 1.45 }}>
+                        <strong>Verify against the live form before applying.</strong> This guide was last verified more than 120 days ago — government portals change frequently.
+                      </div>
+                    )}
                     <p style={{ fontSize: "0.88rem", color: C.muted, lineHeight: 1.5, margin: "0 0 0.85rem 0" }}>{g.blurb}</p>
                     <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
                       <button onClick={() => toggleCart(g.id)} style={{
