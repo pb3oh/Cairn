@@ -3160,6 +3160,7 @@ const GUIDE_CATALOG = [
     pages: 14,
     timeToApply: "About 45 minutes for first-time filing",
     relatedTo: ["va"],
+    verified: "January 2026",
     sections: [
       "Determining if you qualify: wartime-service quickcheck",
       "Documents the VA will require (full checklist)",
@@ -3170,6 +3171,124 @@ const GUIDE_CATALOG = [
       "Decision timeline: the VA's actual averages, by state",
       "Appealing a denial: forms and deadlines",
       "Annual eligibility reviews and what triggers them",
+    ],
+    steps: [
+      {
+        title: "Quickcheck — three eligibility tests",
+        body: [
+          "Aid & Attendance is the highest tier of VA Pension. To qualify, you must pass all three:",
+          "1. Wartime service: served at least 90 days active duty, with at least 1 day during a recognized wartime period — WWII (12/7/41–12/31/46), Korea (6/27/50–1/31/55), Vietnam (8/5/64–5/7/75; or in-country 2/28/61–5/7/75), Persian Gulf War (8/2/90–present). Discharge under conditions other than dishonorable.",
+          "2. Income/asset test: net worth (assets + annual income, minus unreimbursed medical expenses) under the VA's threshold ($155,356 in 2026 for most filers, indexed annually). Your home and one car don't count.",
+          "3. Aid & Attendance need: you require help with daily activities (bathing, dressing, eating, medication management) OR are bedridden OR are blind (corrected vision 5/200 or worse) OR live in a nursing home for mental/physical incapacity.",
+          "Surviving spouses qualify if the deceased veteran met requirements 1 and the spouse meets 2 and 3.",
+        ],
+      },
+      {
+        title: "Documents to gather (start here — collecting takes longer than filling)",
+        body: [
+          "DD-214 (military discharge): your wartime service proof. Request a free copy at archives.gov/veterans if you don't have one. Allow 4–6 weeks to receive.",
+          "Marriage certificate (and divorce decrees from any prior marriages, if applicable).",
+          "Death certificate (surviving-spouse applicants only).",
+          "Most recent federal tax return.",
+          "Bank, brokerage, and retirement account statements (last 3 months).",
+          "Mortgage statement or rent payment proof.",
+          "Itemized list of unreimbursed medical expenses for the past 12 months (caregiver costs, prescriptions, insurance premiums, in-home care, assisted-living facility fees). This deduction is the biggest swing factor in the net-worth calculation.",
+          "Doctor's statement on VA Form 21-2680, completed by your physician.",
+        ],
+      },
+      {
+        title: "Step 1 — VA Form 21P-527EZ — Section I: Veteran Information",
+        body: [
+          "Form 21P-527EZ is the main pension application. Download from va.gov/find-forms or get a paper copy from your nearest VA Regional Office.",
+          "Section I asks for veteran identifying information. Surviving-spouse applicants fill out Form 21P-534EZ instead — same fields plus a section about the deceased veteran.",
+        ],
+        fields: [
+          { label: "Veteran's full name (last, first, middle)", note: "Use the name as it appears on the DD-214." },
+          { label: "Social Security number", note: "Nine digits." },
+          { label: "VA file number (if known)", note: "Skip if you don't have one. The VA will assign one when they receive your application." },
+          { label: "Date of birth", value: "{{birthDate}}" },
+          { label: "Service number (if applicable)", note: "Found on the DD-214. Pre-1969 servicemembers had separate service numbers; later, SSN replaced it." },
+          { label: "Branch of service and dates of active duty", note: "From DD-214: from-date and to-date. Also branch (Army, Navy, etc.)." },
+          { label: "Discharge status", note: "Honorable, General Under Honorable Conditions, or Other Than Honorable. Anything below 'General' makes pension eligibility doubtful — talk to a VSO before filing." },
+        ],
+      },
+      {
+        title: "Step 2 — Section IV: Net Worth and Income",
+        body: [
+          "This is the section where applications most often fail. The VA looks at total net worth (assets + annualized income), then subtracts unreimbursed medical expenses (UMEs) to get the comparison figure.",
+          "Tip: be aggressive about UMEs. The VA accepts many medical expenses retirees overlook — Medicare premiums, supplemental insurance premiums, prescription co-pays, transportation to medical appointments, in-home caregiver costs, and assisted-living facility fees (the medical-care portion).",
+        ],
+        fields: [
+          { label: "Cash and bank accounts (combined)", note: "All checking, savings, money-market accounts." },
+          { label: "Stocks, bonds, mutual funds, IRAs", note: "Current market value." },
+          { label: "Real estate (excluding primary residence)", note: "Vacation homes, rental properties — current market value minus mortgage." },
+          { label: "Other significant assets", note: "Whole-life insurance cash value, business ownership interest." },
+          { label: "Annual income from Social Security", note: "Gross — pre-Medicare-deduction. From your most recent SSA-1099." },
+          { label: "Annual pension income", note: "Sum of all pensions before tax." },
+          { label: "Other annual income (interest, dividends, rental, wages)", note: "Use your most recent tax return as the source." },
+          { label: "Annual unreimbursed medical expenses", note: "Critical — list every medical expense paid out-of-pocket in the past 12 months. Include Medicare Part B and D premiums, Medigap premiums, deductibles, copays, transportation to appointments, prescription costs, hearing aids, dentures, eyeglasses, in-home care, assisted-living medical-care portion." },
+        ],
+      },
+      {
+        title: "Step 3 — Section V: Direct Deposit",
+        body: [
+          "VA pensions are paid only by direct deposit (no paper checks, by federal law since 2013).",
+        ],
+        fields: [
+          { label: "Bank routing number", note: "Nine digits, bottom-left of your check." },
+          { label: "Account number", note: "Bottom of your check." },
+          { label: "Account type", note: "Checking or savings." },
+        ],
+      },
+      {
+        title: "Step 4 — Form 21-2680: Doctor's Examination",
+        body: [
+          "Form 21-2680 (Examination for Housebound Status or Permanent Need for Regular Aid and Attendance) is filled out by your doctor — not you.",
+          "This is the medical evidence proving you need help with daily activities. Without it, the application is denied.",
+          "Take the form to your next regular doctor's appointment. Most physicians' offices know this form and can complete it during the visit. The doctor's office may charge a fee ($25–75) for completion.",
+          "Critical fields the doctor must address: ability to bathe, dress, eat, manage medications, manage finances, and ambulate independently. The form has yes/no checkboxes for each.",
+          "If your doctor's answers don't clearly establish A&A need, ask them to add narrative comments — VA examiners weigh narrative more heavily than checkboxes.",
+        ],
+      },
+      {
+        title: "Step 5 — Where to send the application",
+        body: [
+          "Mail or fax (NOT email) to the VA Pension Management Center for your state:",
+          "If you live in: CT, DE, IN, ME, MD, MA, NH, NJ, NY, NC, OH, PA, RI, VT, VA, DC, WV → mail to: Department of Veterans Affairs, Pension Management Center, P.O. Box 5365, Janesville, WI 53547-5365.",
+          "If you live in: AL, AR, FL, GA, KY, LA, MS, OK, PR, SC, TN, TX → mail to: Department of Veterans Affairs, Pension Management Center, P.O. Box 5365 (the same Janesville address — VA consolidated PMCs in 2017).",
+          "If you live in: AK, AZ, CA, CO, HI, ID, IL, IA, KS, MI, MN, MO, MT, NE, NV, NM, ND, OR, SD, UT, WA, WI, WY → same Janesville address.",
+          "Verify the current mailing address at va.gov/find-locations before mailing — this can change.",
+          "Fax (faster than mail): 844-655-1604.",
+          "Or apply online at va.gov/pension/application/527EZ — fastest, but the system has had reliability issues. Paper is more reliable for first-time filers.",
+        ],
+      },
+      {
+        title: "Working with an accredited VA agent or VSO",
+        body: [
+          "A&A applications are notoriously easy to get wrong. About 30% of first-time filings are denied for incomplete documentation.",
+          "Accredited Veterans Service Officers (VSOs) — from organizations like the American Legion, VFW, DAV, AMVETS — help you file at no charge. They're VA-trained and know the common pitfalls.",
+          "Find a VSO at va.gov/ogc/apps/accreditation/index.asp.",
+          "AVOID: anyone who charges a fee to file (illegal under federal law) or who promises 'guaranteed approval' or 'asset-shielding strategies' (can disqualify you).",
+        ],
+      },
+      {
+        title: "Decision timeline and follow-up",
+        body: [
+          "Average processing time: 4–8 months for first-time A&A claims. Some Pension Management Centers run faster (Wisconsin lately) than others.",
+          "You can check status at va.gov/claim-or-appeal-status using your VA file number once you have one.",
+          "If approved, payments are retroactive to the application date — submit promptly because every month of delay is a month of benefit lost.",
+          "If denied, you have 1 year from the decision letter to file a Notice of Disagreement (Form 21-0958) or Higher-Level Review.",
+        ],
+      },
+      {
+        title: "After approval — annual eligibility reviews",
+        body: [
+          "Once approved, you receive Form 21P-0518 (Improved Pension Eligibility Verification Report) every year. Complete and return within 60 days.",
+          "Failure to return = automatic suspension of benefits.",
+          "Notify the VA within 30 days of any change to: marital status, household composition, income, assets, or unreimbursed medical expenses.",
+          "If your situation improves (income up, medical needs decrease), benefits may be reduced or terminated. Conversely, if costs rise, you can request a re-evaluation for a higher benefit tier mid-year.",
+        ],
+      },
     ],
     sample: "p. 5 — Form 21P-527EZ, page 2, with our example showing how to report unreimbursed medical expenses (the deduction most applicants miss).",
   },
@@ -3327,6 +3446,7 @@ const GUIDE_CATALOG = [
     timeToApply: "About 1 hour for thorough comparison",
     relatedTo: ["medigap"],
     universal: true,
+    verified: "January 2026",
     sections: [
       "Why Plan G is identical from every carrier (and what isn't)",
       "Building your shopping list: 5 carriers minimum",
@@ -3336,6 +3456,114 @@ const GUIDE_CATALOG = [
       "Reading the rate-stability disclosures (most agents don't show you these)",
       "Step 3 — Choosing and applying within your guaranteed-issue window",
       "Annual review: how to switch if your carrier raises rates",
+    ],
+    steps: [
+      {
+        title: "Why Plan G is identical from every carrier",
+        body: [
+          "Federal law (CMS regulations) defines exactly what Medigap Plan G covers. Every carrier's Plan G has the same benefits — same coinsurance coverage, same Part B excess charges, same skilled-nursing-facility coinsurance, same foreign-travel emergency benefit.",
+          "What differs across carriers: monthly premium (can vary 30–50% in your zip code), rating method (attained-age vs. issue-age vs. community), household discount (5–15% for spousal pairs), recent rate-increase history, and customer service quality.",
+          "Plan G covers everything Plan F did EXCEPT the Part B deductible ($240/year in 2026). It's the most popular plan for new enrollees because Plan F is no longer available to people who turned 65 after 2020.",
+          "If premium is your top concern and you don't mind paying the Part B deductible yourself, Plan G's slightly cheaper sibling Plan N is also worth a quote — but it has copays at the doctor's office that Plan G doesn't.",
+        ],
+      },
+      {
+        title: "Build your shopping list: 5 carriers minimum",
+        body: [
+          "The single biggest mistake Medigap shoppers make: getting one quote and stopping. Plan G premiums for the same coverage in your zip code routinely vary by $50–100/month, which is $600–1,200/year forever.",
+          "{{stateName}} carriers worth quoting first (from the audit's Medigap section): the carriers shown in your Cairn results. Aim for 5+ quotes minimum.",
+          "Useful shortcut: also quote a regional Blue Cross Blue Shield plan in your state (e.g., CareFirst in MD/DC/VA, Anthem in CA/CO/CT, Highmark in PA, Florida Blue in FL). Local Blues sometimes price aggressively for state residents.",
+          "Avoid: any quote site that asks for your phone number before showing prices. They're lead-generators that sell your number to 5–10 agents who will call all day. Get quotes directly from carrier websites or via 1-800-MEDICARE's free Medigap quote tool.",
+        ],
+        fields: [
+          { label: "Your ZIP code", note: "All Medigap quotes are zip-code specific. The same plan can vary $30/mo across zip codes 20 miles apart." },
+          { label: "Tobacco use", note: "Smokers pay 20–35% more across most carriers. Honest disclosure matters — carriers can deny claims if you misrepresent and they later find out." },
+          { label: "Spouse coverage?", note: "If your spouse is also Medicare-eligible, ask about household discount on each quote. 5–15% off, often enough to flip the rankings." },
+        ],
+      },
+      {
+        title: "Step 1 — Get your first quote (Mutual of Omaha walkthrough)",
+        body: [
+          "Why start with Mutual of Omaha: A+ AM Best rating, available in all 50 states, transparent pricing on their public site, and they offer a 7% household discount.",
+          "Go to mutualofomaha.com → 'Medicare Supplement' → 'Get a Quote'. You'll be on the quote page within 2 clicks.",
+        ],
+        fields: [
+          { label: "ZIP code, gender, date of birth", value: "{{birthDate}}", note: "Birth date determines your premium tier. Quotes auto-update on each birthday for attained-age carriers." },
+          { label: "Tobacco use", note: "Honest answer required." },
+          { label: "Effective date you want coverage to start", note: "Pick the first of the month after your Part B starts. For Cairn IEP users: this is {{partBStartLabel}}." },
+          { label: "Household discount eligibility", note: "If your spouse is on Medicare or applying with you, check yes for the 7% discount. Mutual of Omaha's spousal discount applies even if your spouse picks a different Medigap carrier." },
+          { label: "Plan letter", value: "Plan G", note: "Pick Plan G. The site will show Plan G, Plan G HD (high-deductible variant — different beast), Plan N, and others. Stick with regular Plan G unless you've researched the others." },
+        ],
+      },
+      {
+        title: "Step 2 — Repeat with Cigna, Aetna, and a regional Blue",
+        body: [
+          "Cigna: cigna.com → 'Medicare Supplement' → 'Get a Quote'. Cigna often has the lowest new-enrollee Plan G price in {{stateName}}.",
+          "Aetna: aetnamedicare.com → 'Medicare Supplement Plans'. Aetna's pricing is mid-pack but rate stability is good.",
+          "Regional Blue (varies by state): for example, Florida Blue in FL, Highmark in PA, CareFirst BCBS in MD/DC. Blues often have strong local provider relationships and reasonable rate stability.",
+          "United Healthcare (AARP-branded): aarpmedicaresupplement.com. Requires an AARP membership ($16/year) to enroll. UHC is the largest Medigap carrier; pricing is rarely cheapest but rate increases tend to be moderate.",
+          "Use the same exact answers (zip, DOB, tobacco, plan G, effective date) on each site to make quotes comparable.",
+        ],
+      },
+      {
+        title: "Build a side-by-side comparison sheet",
+        body: [
+          "Open a spreadsheet (or use Cairn's comparison worksheet on page 7 of this guide). Columns: carrier, monthly premium, AM Best rating, rating method, household discount %, last 3-year rate-increase history, customer-service rating from JD Power.",
+          "Fill in each carrier as you get the quote. Don't try to remember — small differences matter and you'll forget by carrier #4.",
+        ],
+        fields: [
+          { label: "Carrier name", note: "From your shopping list." },
+          { label: "Monthly premium with discounts applied", note: "Use the household-discount-applied price if applicable. That's what you'll actually pay." },
+          { label: "AM Best financial strength rating", note: "A or better is fine. A- or below = research before committing." },
+          { label: "Rating method", note: "Attained-age (rises each birthday), issue-age (locks at enrollment), or community-rated (same for all ages). Long-term cost depends on this more than starting premium." },
+          { label: "Household discount %", note: "0–15%. Apply only if your spouse will also be on Medicare and enrolling with the same or different carrier (varies by carrier)." },
+          { label: "3-year average annual rate increase", note: "Ask the agent or look up state filings. <5% is good; 8%+ is concerning." },
+        ],
+      },
+      {
+        title: "What to ask each carrier (the questions agents skip)",
+        body: [
+          "Most Medigap agents are paid commission and will steer you toward the carrier paying them best. To level the field, ask each one the same questions — the answers tell you whether to trust them.",
+          "1. 'What's your average annual rate increase over the last 3 years for Plan G in my zip code?' (Honest answer: 4–8%. If they say 'rates rarely go up,' they're lying.)",
+          "2. 'Is this attained-age, issue-age, or community-rated?' (Drives long-term cost. Most carriers nationally are attained-age.)",
+          "3. 'Do you offer a household discount, and what are the eligibility requirements?' (Some carriers require both spouses on Medicare; others count co-habitation only.)",
+          "4. 'How are you rated by AM Best, and has your rating changed in the last 5 years?' (UHC was downgraded from A+ to A in Aug 2025 — most agents don't volunteer this.)",
+          "5. 'Will you give me a copy of the most recent rate-increase filing for my state?' (Good agents will. State insurance departments publish these publicly anyway.)",
+        ],
+      },
+      {
+        title: "Reading the rate-stability disclosures",
+        body: [
+          "Every state insurance department publishes Medigap rate-increase filings. Search '[your state] insurance department medigap rate' to find yours.",
+          "{{stateName}} rate-comparison resource: " + "Look for the most recent 3 years of filings per carrier. Patterns matter more than any single year — a carrier with one big jump and otherwise flat rates is different from one with steady 7%/year hikes.",
+          "Issue-age and community-rated carriers will show smaller annual increases than attained-age, because attained-age has age-creep baked into the structure.",
+          "If you're choosing between two carriers within $10/mo, pick the one with the better 3-year history.",
+        ],
+      },
+      {
+        title: "Step 3 — Apply within your 6-month guaranteed-issue window",
+        body: [
+          "The Medigap guaranteed-issue window starts the month your Part B begins and lasts 6 months. During this window, no carrier can deny you for health reasons or charge more for pre-existing conditions.",
+          "Outside this window, most states let carriers medically underwrite — they can deny coverage, charge more, or impose waiting periods.",
+          "For Cairn pre-65 users: your guaranteed-issue window is {{partBStartLabel}} through ~6 months later. Apply during this window.",
+          "Submit the application directly through the carrier's website. Approval is automatic during guaranteed-issue (paperwork only, no health questions).",
+        ],
+        fields: [
+          { label: "Effective date", value: "{{partBStartLabel}}", note: "Pick the first of the month your Part B starts. Earlier is risky (no Medicare to coordinate with); later means a coverage gap." },
+          { label: "Health questions", note: "During the 6-month guaranteed-issue window, the application skips health questions. If you see them, you may be applying outside your window — pause and verify." },
+          { label: "Payment method", note: "Most carriers accept auto-draft from bank account or credit card. Some also support deduction from Social Security." },
+          { label: "Effective date confirmation", note: "Carrier emails or mails an effective-date confirmation within 7–10 days. Save it." },
+        ],
+      },
+      {
+        title: "Annual review: how to switch if your carrier raises rates",
+        body: [
+          "If your carrier raises rates >7% in a year, shop again. You can switch carriers at any time — Medigap doesn't have an Annual Enrollment Period like Part D.",
+          "Catch: outside your initial 6-month guaranteed-issue window, you'll likely face medical underwriting on the new carrier. If you have health conditions, you may be denied or charged more.",
+          "Exception: California's birthday rule. Every year in the 60 days following your birthday, you can switch to any equal-or-lesser Plan G with any carrier without medical underwriting.",
+          "Other states with similar rules: New York, Connecticut (community-rated by law), Massachusetts (annual open enrollment), Maine, Vermont. Check your state's specific rules at shiphelp.org.",
+        ],
+      },
     ],
     sample: "p. 7 — A side-by-side worksheet: same Plan G, five carriers, with our example showing $73/mo difference on identical coverage.",
   },
@@ -3347,6 +3575,7 @@ const GUIDE_CATALOG = [
     timeToApply: "About 30 minutes (need your medication list)",
     relatedTo: ["medicare_enrollment", "medigap"],
     universal: true,
+    verified: "January 2026",
     sections: [
       "Before you start: gathering your medication list",
       "Why total annual cost beats monthly premium",
@@ -3356,6 +3585,111 @@ const GUIDE_CATALOG = [
       "Step 4 — Enrolling directly through Plan Finder",
       "Annual review reminder: re-shop every fall",
       "What to do if a drug is dropped from your formulary mid-year",
+    ],
+    steps: [
+      {
+        title: "Before you start: build your medication list",
+        body: [
+          "Allow 30 minutes. Plan Finder is fast once you have your drug list ready — most of the time you'll spend is gathering names, dosages, and quantities.",
+          "For each prescription you take, write down: drug name (brand or generic — Plan Finder accepts either), dose (e.g., 20 mg), frequency (e.g., once daily), and quantity per fill (e.g., 30 tablets per 30 days).",
+          "Easiest source: ask your pharmacy for a printout of your last 12 months of prescriptions. Most pharmacies print this on request, no charge.",
+          "If you take seasonal or as-needed drugs (inhalers, allergy meds), include them — they affect total annual cost.",
+        ],
+      },
+      {
+        title: "Why total annual cost beats monthly premium",
+        body: [
+          "The cheapest-premium plan is rarely the cheapest plan overall. Drug deductibles, copays, and tier placement matter more than the headline premium.",
+          "Example: a $5/mo plan with a $545 deductible and 25% coinsurance on tier-3 drugs can easily cost $1,200/year more than a $35/mo plan with $0 copays for your specific drugs.",
+          "Plan Finder shows 'estimated annual drug cost' in the results — that's the column to sort by.",
+          "The 2026 Part D donut-hole reform caps total annual out-of-pocket at $2,100 — so for high-utilizers, every plan converges above that ceiling. The differences live in the first $2,100.",
+        ],
+      },
+      {
+        title: "Step 1 — Open Plan Finder at medicare.gov/plan-compare",
+        body: [
+          "From the Medicare.gov homepage, click 'Find a plan' or go directly to medicare.gov/plan-compare.",
+          "You can use Plan Finder logged-in (with your my Medicare account) or as a guest. Logged-in is better — it remembers your drug list across sessions and pre-fills your name when you enroll.",
+        ],
+        fields: [
+          { label: "What type of coverage are you looking for?", value: "Drug plan (Part D)", note: "Select 'Drug plan (Part D)' to see standalone Part D plans. Selecting 'Medicare Advantage Plan' switches to MA + Part D bundles — different shopping flow." },
+          { label: "ZIP code", note: "Plans and prices are zip-code specific." },
+          { label: "Are you getting any kind of help paying for your prescriptions?", note: "Answer yes if you have Extra Help / LIS, full Medicaid, or are in an MSP — Plan Finder will show your subsidized cost instead of full cost." },
+        ],
+      },
+      {
+        title: "Step 2 — Enter your drugs",
+        body: [
+          "Plan Finder asks for your drugs one at a time. Type the first few letters and pick from the dropdown — generic and brand are usually both listed.",
+          "After picking each drug, set the dose and quantity. Plan Finder defaults to common values; verify they match your prescription label.",
+          "If a drug isn't in the dropdown, it's either misspelled, an over-the-counter med (Part D doesn't cover OTC), or extremely new — call 1-800-MEDICARE to confirm.",
+          "Save your drug list before continuing. The 'Save' button stores it to your my Medicare account; without an account, Plan Finder remembers it for the current browser session only.",
+        ],
+        fields: [
+          { label: "Drug name", note: "Type 3+ letters, pick from the dropdown. Brand and generic are interchangeable for matching purposes." },
+          { label: "Dose", note: "From your prescription label. If your prescription says '10 mg twice daily,' enter 10 mg here and 'twice daily' as frequency." },
+          { label: "Quantity per fill", note: "How many pills/tablets per refill. 30 for monthly, 90 for 3-month mail-order." },
+          { label: "Frequency", note: "Once daily, twice daily, etc. Affects whether you fill 30 or 60 tablets per month." },
+        ],
+      },
+      {
+        title: "Step 3 — Pick your pharmacy",
+        body: [
+          "Plan Finder asks for up to 5 pharmacies. Most plans have 'preferred' pharmacies where copays are lower — this can swing total annual cost by hundreds of dollars.",
+          "Tip: include your usual pharmacy AND a major chain (CVS, Walgreens, Walmart). If your usual pharmacy isn't preferred under the cheapest plan, switching might save more than the plan's premium savings.",
+          "Mail-order pharmacy (Express Scripts, OptumRx, etc.) is almost always the lowest-copay option for 3-month fills of maintenance drugs.",
+        ],
+        fields: [
+          { label: "Pharmacy ZIP code", note: "Defaults to your home ZIP." },
+          { label: "Pharmacy search", note: "Type pharmacy name or browse by chain. Pick up to 5." },
+          { label: "Include mail-order pharmacy?", note: "Yes — mail-order is often the lowest-copay option for maintenance medications." },
+        ],
+      },
+      {
+        title: "Step 4 — Read the results",
+        body: [
+          "Plans are listed with: monthly premium, annual deductible, estimated annual drug cost, and CMS Star Rating (1–5).",
+          "Sort by 'Lowest drug + premium cost' — this is total annual cost. Don't sort by premium alone.",
+          "Star Rating reflects the plan's customer-service and accuracy track record. Aim for 3.5 stars or higher when total cost is close.",
+          "Click into the top 2–3 plans to see drug-by-drug copays — sometimes a $5/mo difference in premium hides a $40/mo difference on a tier-3 drug you take.",
+        ],
+        fields: [
+          { label: "Sort by", value: "Lowest drug + premium cost", note: "This shows total annual cost — the metric that matters." },
+          { label: "Filter: Star Rating", note: "Optional — filter to 4+ stars if quality matters more than $50/year of savings." },
+          { label: "Filter: Plan type", note: "Stand-alone PDP only (not MA-PD), unless you want a Medicare Advantage bundle." },
+          { label: "Compare", note: "Check up to 3 plans to see drug-by-drug copays side-by-side. Look for tier-3 drugs (most expensive) — that's where plan differences show." },
+        ],
+      },
+      {
+        title: "Step 5 — Enroll directly through Plan Finder",
+        body: [
+          "Once you've picked a plan, click 'Enroll' next to it on the comparison page. Plan Finder hands you off to the insurer's enrollment form, but pre-fills most fields from your Medicare account.",
+          "You'll need: Medicare card (MBI), Part A and Part B effective dates, payment method (premium can be auto-deducted from Social Security or paid by bank transfer).",
+          "Confirmation: the insurer emails or mails a welcome packet within 7–10 days. Coverage starts the 1st of the month after enrollment (during AEP, coverage starts Jan 1).",
+        ],
+        fields: [
+          { label: "Medicare number (MBI)", note: "From the front of your red-white-blue Medicare card." },
+          { label: "Part A and Part B effective dates", note: "Also on your Medicare card." },
+          { label: "Premium payment method", note: "Three options: deduction from Social Security check (most common), bank auto-draft, or mailed bill." },
+          { label: "Pharmacy preference", note: "Pre-filled from earlier in Plan Finder." },
+        ],
+      },
+      {
+        title: "Annual review every fall (Open Enrollment, Oct 15 – Dec 7)",
+        body: [
+          "Re-run Plan Finder every fall. Drug formularies change yearly — a plan that was best for you in 2026 may not be in 2027.",
+          "Most people who don't re-shop end up paying $200–700/year more than they need to.",
+          "If you switch plans during AEP, the new plan starts Jan 1 automatically. No need to cancel the old one.",
+        ],
+      },
+      {
+        title: "If a drug is dropped from your formulary mid-year",
+        body: [
+          "Insurers can drop drugs mid-year, but they must give you 30 days' notice and offer a transition supply (typically 30 days at the previous tier).",
+          "Three options: (1) ask your doctor for an alternative on the formulary, (2) request a formulary exception (your doctor submits a Medical Necessity form to the plan), (3) wait until next AEP and switch plans.",
+          "Formulary exception success rate is ~70% when your doctor submits the request with documented medical necessity.",
+        ],
+      },
     ],
     sample: "p. 5 — Plan Finder results, annotated to show which 'cheapest premium' is actually $400/year more expensive than option three.",
   },
@@ -3568,9 +3902,24 @@ function buildPersonalizationContext(answers) {
     nextStepsGuidance = `Coverage starts ${iep.partBStartLabel}. Your red-white-blue Medicare card arrives ~3 weeks before that date.`;
   }
 
+  // State-specific MSP guidance for the 8 seeded states. Falls back to generic
+  // language for the other 42. Inlined here per CLAUDE.md decision #7 (avoid
+  // splitting MSP into 7+ separate SKUs — easier to maintain in one place).
+  const STATE_MSP_NOTES = {
+    MD: "Maryland: apply via MD THINK at mymdthink.maryland.gov (the universal benefits portal — also handles SNAP). MD has streamlined enrollment: if you qualify for QMB, you're auto-enrolled in Extra Help. Decision typically arrives in 30 days. Phone help: 1-800-332-6347.",
+    CA: "California: apply through your county's Medi-Cal office (Medi-Cal is California's Medicaid program). Online at benefitscal.com or in person at any county social services office. CA's MSP is called the 'Medicare Savings Program' and is processed through Medi-Cal. Decision: 30–45 days. CA Medicare Advocacy: 1-800-434-0222.",
+    NY: "New York: apply through your county's Department of Social Services or online at nystateofhealth.ny.gov. NY's MSP processing is generally faster than other states (often 2–3 weeks). EPIC (separate NY-only Rx benefit) auto-coordinates if you also qualify for that. Phone: 1-800-541-2831.",
+    FL: "Florida: apply through ACCESS Florida at myaccessflorida.com. FL's MSP review is typically 30 days but backlogs in Q1 can extend it to 60. The state also runs a separate prescription assistance program — ask the caseworker about Florida Discount Drug Card during your application. Phone: 1-866-762-2237.",
+    TX: "Texas: apply via YourTexasBenefits.com (the unified portal for SNAP, MSP, Medicaid, and TANF). TX requires interview by phone or in-person — schedule it when you submit. Decision: 30–45 days. 2-1-1 Texas connects you to a local benefits counselor.",
+    PA: "Pennsylvania: apply via COMPASS at compass.state.pa.us (the universal benefits portal). PA also runs PACE/PACENET — separate state Rx programs that auto-coordinate with MSP approval. PA's processing time is among the fastest in the country (2–4 weeks). Phone: 1-800-692-7462.",
+    VA: "Virginia: apply via CommonHelp at commonhelp.virginia.gov. VA processes MSP through local Department of Social Services offices — your case is assigned to your county's office. Decision: 30–45 days. Phone: 1-855-242-8282.",
+    DC: "DC: apply via the DC Medicaid portal at dchealthlink.com or in person at the Economic Security Administration. DC has the most generous MSP income limits in the region — verify against the current DC-specific thresholds, which exceed federal levels. Phone: 202-727-5355.",
+  };
   let stateMspGuidance = `${stateName}'s Medicaid agency is your starting point.`;
-  if (stateData && stateData.mspApplyUrl) {
-    stateMspGuidance = `Apply at ${stateData.mspApplyUrl}. ${stateName}'s Medicaid agency processes the application.`;
+  if (a.state && STATE_MSP_NOTES[a.state]) {
+    stateMspGuidance = STATE_MSP_NOTES[a.state];
+  } else if (stateData && stateData.mspApplyUrl) {
+    stateMspGuidance = `Apply at ${stateData.mspApplyUrl}. ${stateName}'s Medicaid agency processes the application. Detailed state-specific guidance for ${stateName} is coming soon — for now, your local SHIP counselor (free at shiphelp.org) is the best resource.`;
   }
 
   const monthlyIncome = Number(a.income) || 0;

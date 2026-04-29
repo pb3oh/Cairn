@@ -23,24 +23,21 @@ Shipped in commit b702420 on branch `claude/review-repo-context-YX7hV`.
 - In-IEP branch (`age 64-65 + not_yet`) renders the user's actual IEP window dates
 - `generateWatchouts` updated with hard-date IEP, late-enrollment %, and Part D penalty alerts
 
-### Milestone 2 — Field-by-field PDF content (5 of 9 guides) — IN PROGRESS
-Shipped across commits on `claude/review-repo-context-YX7hV`.
-- `medicare_enrollment` (10 steps, full SSA flow) — DONE
-- `extra_help` (5 steps) — DONE
-- `msp` (8 steps, Medicare Savings Programs) — DONE
-- `irmaa_appeal` (10 steps, full SSA-44 walkthrough) — DONE
-- `spdap` (8 steps, Maryland SPDAP) — DONE
-- PDF generator rewritten for multi-page output — DONE
-- Personalization tokens (`{{stateName}}`, `{{partBStartLabel}}`, `{{birthDate}}`, `{{annualIncome}}`, `{{currentYear}}`, `{{filingStatusSingle}}`, `{{filingStatusJoint}}`, `{{maritalLabel}}`, etc.) substitute from audit answers — DONE
-- `verified: "January 2026"` stamp on title page — DONE
-- `verifyOnLiveForm: true` flag at field level for content that warrants live-form double-check — DONE
+### Milestone 2 — Field-by-field PDF content (9 of 9 guides) — DONE
+Shipped across commits on `claude/review-repo-context-YX7hV`. All guides have field-by-field step content, `verified: "January 2026"` stamps, and personalization-token support.
+- `medicare_enrollment` (10 steps, full SSA flow)
+- `extra_help` (5 steps)
+- `msp` (8 steps + state-specific guidance for all 8 seeded states inline via `STATE_MSP_NOTES`)
+- `irmaa_appeal` (10 steps, full SSA-44 walkthrough)
+- `spdap` (8 steps, Maryland SPDAP)
+- `part_d_pick` (9 steps, Medicare Plan Finder walkthrough)
+- `medigap_shop` (9 steps, 5-carrier comparison)
+- `va_aid` (10 steps, Form 21P-527EZ + Form 21-2680)
+- PDF generator: multi-page output, personalization tokens, `verifyOnLiveForm` flags
+- Personalization tokens: `{{stateName}}`, `{{partBStartLabel}}`, `{{iepStart}}`, `{{iepEnd}}`, `{{birthDate}}`, `{{annualIncome}}`, `{{currentYear}}`, `{{filingStatusSingle}}`, `{{filingStatusJoint}}`, `{{maritalLabel}}`, `{{employerCoverageGuidance}}`, `{{employerCoverageAnswer}}`, `{{nextStepsGuidance}}`, `{{stateMspGuidance}}`, `{{mspApplyUrl}}`
 
-### Milestone 3 — Author remaining 4 guides — NOT STARTED
-Estimated ~15-17 hours. Order suggested by impact/effort ratio:
-1. `part_d_pick` (Medicare Plan Finder walkthrough) — **~4 hrs**
-2. `medigap_shop` (5-carrier comparison flow) — **~5 hrs**
-3. `va_aid` (VA Aid & Attendance) — paperwork-heavy, multi-form — **~6 hrs**
-4. State-specific MSP variants for the 7 other seeded states (CA, NY, FL, TX, PA, VA, DC) — **~2 hrs each, ~14 hrs total** (could also be deferred and handled by per-state notes inside the universal MSP guide)
+### Milestone 3 — Author remaining guides — DONE (rolled into M2)
+Resolved per CLAUDE.md decision #7: state-specific MSP variants inlined in the universal `msp` guide via per-state `STATE_MSP_NOTES`, instead of split into 7 separate SKUs. Saves ~14 hrs of redundant authoring and cuts maintenance surface.
 
 ### Milestone 4 — Manual QA pass — DEFERRED — **0 hrs (descoped)**
 User chose Option B: accept build + code-review as QA. No browser walkthrough, no headless test.
@@ -77,18 +74,21 @@ Estimated ~40-60 hrs depending on stack choice.
 
 ## Open decisions for the user
 
-(Status of the original 5 decisions after this session's work:)
+(All previously-open decisions now resolved:)
 
-1. ~~**Which guide to author next?**~~ — RESOLVED: `irmaa_appeal` and `spdap` both authored. Next: `part_d_pick`.
-2. ~~**Manual QA before more authoring?**~~ — PARTIAL: code-path review done; browser walkthrough still needed (user action).
-3. **Merge to `main`?** — Still pending, but M4 is now descoped. Updated recommendation: it's safe to merge after each guide's content lands, since the build+code-review-only QA bar is the same bar future commits will pass. Risk is borne in production.
-4. ~~**PDF library swap (M6) before or after?**~~ — RESOLVED: deferred until all 9 guides are authored.
-5. **Content verification (M5):** Still pending. Two `verifyOnLiveForm: true` flags planted in irmaa_appeal — these are the highest-priority field labels to confirm against the live SSA-44 form when verification happens.
+1. ~~**Which guide to author next?**~~ — RESOLVED: all 9 done.
+2. ~~**Manual QA before more authoring?**~~ — RESOLVED: descoped per Option B (build + code-review only).
+3. **Merge to `main`?** — Pending. With M2/M3 complete and the build green, this is the natural next step. Triggers auto-deploy to GitHub Pages.
+4. ~~**PDF library swap (M6) before or after?**~~ — RESOLVED: deferred until after authoring (now reachable as next-priority work).
+5. **Content verification (M5):** Pending. All 9 guides are written from public-knowledge sources and stamped `verified: January 2026`. Walking each application personally (or via a SHIP counselor) before charging real money for the guides remains the right step. Sustained ~6–8 hrs of work.
+6. ~~**Browser walkthrough timing.**~~ — RESOLVED: descoped.
+7. ~~**State-specific MSP variants.**~~ — RESOLVED: inlined per `STATE_MSP_NOTES` in `buildPersonalizationContext`.
 
-(New decisions surfaced this session:)
+(New decisions to make next:)
 
-6. ~~**Browser walkthrough timing.**~~ — RESOLVED: descoped per Option B.
-7. **State-specific MSP variants** (sub-task of M3): inline as state notes inside the universal `msp` guide, or split into 7 separate guides? Recommendation: inline — fewer SKUs, easier maintenance, and the universal MSP already personalizes via `{{stateName}}` and `{{mspApplyUrl}}`.
+8. **Re-verification cadence (M7).** When does the first re-verification pass run? Recommendation: schedule for Q3 2026 (about 6 months after the January 2026 baseline) to catch fall-AEP-driven portal changes before they hit applicants.
+9. **Production PDF library swap (M6).** Now that all 9 guides are content-complete, the text PDF is the bottleneck for visual quality. `@react-pdf/renderer` recommended. ~6–10 hrs.
+10. **Backend (M8).** Stripe + email + S3 signed URLs are required before charging real money. ~40–60 hrs depending on stack.
 
 ## Conventions for ongoing work
 
