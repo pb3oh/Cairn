@@ -7,7 +7,7 @@ A 4-minute Medicare benefits review for U.S. retirees. React + Vite, deployed to
 Goal: turn the end-of-audit PDF download into a true field-by-field walkthrough of each program's application, with a dedicated pre-65 / late-enrollment branch so the product serves people approaching 65 as well as those already on Medicare.
 
 ### Working branch
-`claude/review-repo-context-YX7hV` — push here, do not push to `main` without explicit user approval (main auto-deploys to GitHub Pages).
+`claude/review-repo-context-YX7hV` — develop here, then open a PR to `main` and merge it (per user instruction 2026-04-29: "Make all the changes as you develop. Push these to the repo so I don't have to do anything"). Merging fires the GitHub Pages auto-deploy. Do NOT push directly to `main` — keep the PR paper trail.
 
 ---
 
