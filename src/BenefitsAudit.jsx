@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useRef } from "react";
 import { ChevronRight, ChevronLeft, Check, AlertCircle, Sparkles, ArrowRight, Shield, Clock, Star, Quote, Calendar, Phone, Mail, User, CheckCircle2, Plus, Minus, ExternalLink, DollarSign, FileText, Download, Printer, Package, Lock, RotateCcw } from "lucide-react";
 
 // ── 2026 Federal Poverty Level (48 states + DC) ─────────────────────────
@@ -376,7 +376,11 @@ const STATE_ZIP_PREFIXES = {
   NY: [/^00[5]/, /^1[0-4]/], NC: [/^27/, /^28/], ND: [/^58/], OH: [/^4[3-5]/],
   OK: [/^73/, /^74/], OR: [/^97/], PA: [/^15/, /^16/, /^17/, /^18/, /^19[0-6]/],
   RI: [/^02[89]/], SC: [/^29/], SD: [/^57/], TN: [/^37/, /^38[0-5]/],
-  TX: [/^7[3-9]/, /^885/], UT: [/^84/], VT: [/^05/], VA: [/^2[0-4]/],
+  // TX 73–74 overlaps Oklahoma. Keep 733/739 (Austin / TX panhandle) plus 75–79.
+  TX: [/^75/, /^76/, /^77/, /^78/, /^79/, /^733/, /^739/, /^885/],
+  UT: [/^84/], VT: [/^05/],
+  // VA 201 + 220–246. /^2[0-4]/ was matching DC (200–205) and most of MD (206–219).
+  VA: [/^201/, /^22/, /^23/, /^24[0-6]/],
   WA: [/^98/, /^99[0-4]/], WV: [/^24[7-9]/, /^25/, /^26[0-8]/], WI: [/^53/, /^54/],
   WY: [/^82/, /^83[01]/],
 };
@@ -502,7 +506,9 @@ function lookupCounty(stateCode, zip) {
   const zipStr = String(zip).trim();
   if (zipStr.length < 3) return null;
   const prefix = zipStr.substring(0, 3);
-  // Find a county whose prefixes include this ZIP prefix
+  // First-match wins. Several 3-digit prefixes are shared across counties
+  // (e.g. MD 210 is both Baltimore County and Howard). This will mis-attribute
+  // at scale until a 5-digit HUD ZIP–county crosswalk replaces COUNTY_DATA.
   const match = COUNTY_DATA[stateCode].find(c => c.prefixes.includes(prefix));
   return match || null;
 }
@@ -518,6 +524,51 @@ function getStateData(stateCode) {
     medigapCarriers: NATIONAL_CARRIERS,
     programs: [],
   };
+}
+
+// ── Input / URL hardening ───────────────────────────────────────────────
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+const MAX_NAME_LEN = 80;
+const MAX_EMAIL_LEN = 254;
+const MAX_NOTES_LEN = 500;
+const MAX_PHONE_LEN = 32;
+
+function clampNumber(value, min, max) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  if (min != null && n < min) return null;
+  if (max != null && n > max) return null;
+  return n;
+}
+
+function isValidEmail(value) {
+  const s = String(value || "").trim();
+  return s.length > 0 && s.length <= MAX_EMAIL_LEN && EMAIL_RE.test(s);
+}
+
+function limitText(value, max) {
+  return String(value ?? "").slice(0, max);
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+// Only http(s) outbound links. Blocks javascript:, data:, and relative junk.
+function safeHttpUrl(url) {
+  if (!url || typeof url !== "string") return null;
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return null;
+    return parsed.href;
+  } catch {
+    return null;
+  }
 }
 
 // ── Date / age helpers ────────────────────────────────────────────────
@@ -731,7 +782,7 @@ function evaluate(answers) {
   const findings = [];
   const isCouple = answers.marital === "couple";
   const hh = isCouple ? 2 : 1;
-  const income = Number(answers.income) || 0;
+  const income = clampNumber(answers.income, 0, 100000) ?? 0;
   const ageNum = getAge(answers);
   const annualIncome = income * 12;
   const fplAnnual = FPL_2026[hh];
@@ -866,7 +917,7 @@ function evaluate(answers) {
 // most users a tap and ensures the recommendation engine has good defaults.
 function suggestPriority(a) {
   const ageNum = getAge(a);
-  const income = Number(a.income) || 0;
+  const income = clampNumber(a.income, 0, 100000) ?? 0;
   const annualIncome = income * 12;
   const assets = a.assets;
   const rx = a.rx;
@@ -1945,8 +1996,8 @@ function FindingCard({ f, defaultOpen = false }) {
             <div style={{ background: C.bg, padding: "0.75rem 1rem", fontSize: "0.88rem", borderRadius: "2px", lineHeight: 1.5 }}>
               <strong style={{ color: C.ink }}>How to claim it:</strong> <span style={{ color: C.muted }}>{f.action}</span>
             </div>
-            {f.applyUrl && (
-              <a href={f.applyUrl} target="_blank" rel="noopener noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: "0.4rem", marginTop: "0.85rem", padding: "0.55rem 1rem", background: C.ink, color: C.bg, borderRadius: "2px", textDecoration: "none", fontSize: "0.85rem", fontWeight: 500, transition: "background 0.2s" }} onMouseEnter={e => e.currentTarget.style.background = C.accent} onMouseLeave={e => e.currentTarget.style.background = C.ink}>
+            {safeHttpUrl(f.applyUrl) && (
+              <a href={safeHttpUrl(f.applyUrl)} target="_blank" rel="noopener noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: "0.4rem", marginTop: "0.85rem", padding: "0.55rem 1rem", background: C.ink, color: C.bg, borderRadius: "2px", textDecoration: "none", fontSize: "0.85rem", fontWeight: 500, transition: "background 0.2s" }} onMouseEnter={e => e.currentTarget.style.background = C.accent} onMouseLeave={e => e.currentTarget.style.background = C.ink}>
                 Apply now <ExternalLink size={12} />
               </a>
             )}
@@ -1992,9 +2043,11 @@ function CarrierCard({ carrier, isLowest, stateName }) {
         </p>
       )}
 
-      <a href={carrier.url} target="_blank" rel="noopener noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: "0.3rem", fontSize: "0.82rem", color: C.accent, textDecoration: "none", fontWeight: 500 }}>
-        Get a quote <ExternalLink size={11} />
-      </a>
+      {safeHttpUrl(carrier.url) && (
+        <a href={safeHttpUrl(carrier.url)} target="_blank" rel="noopener noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: "0.3rem", fontSize: "0.82rem", color: C.accent, textDecoration: "none", fontWeight: 500 }}>
+          Get a quote <ExternalLink size={11} />
+        </a>
+      )}
     </div>
   );
 }
@@ -2057,8 +2110,8 @@ function MedicarePathBlock({ path }) {
                       {step.title}
                     </h5>
                     <p style={{ fontSize: "0.88rem", color: C.muted, lineHeight: 1.5, margin: 0 }}>{step.why}</p>
-                    {step.link && (
-                      <a href={step.link.url} target="_blank" rel="noopener noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: "0.4rem", marginTop: "0.85rem", padding: "0.55rem 1rem", background: C.ink, color: C.bg, borderRadius: "2px", textDecoration: "none", fontSize: "0.85rem", fontWeight: 500, transition: "background 0.2s" }} onMouseEnter={e => e.currentTarget.style.background = C.accent} onMouseLeave={e => e.currentTarget.style.background = C.ink}>
+                    {step.link && safeHttpUrl(step.link.url) && (
+                      <a href={safeHttpUrl(step.link.url)} target="_blank" rel="noopener noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: "0.4rem", marginTop: "0.85rem", padding: "0.55rem 1rem", background: C.ink, color: C.bg, borderRadius: "2px", textDecoration: "none", fontSize: "0.85rem", fontWeight: 500, transition: "background 0.2s" }} onMouseEnter={e => e.currentTarget.style.background = C.accent} onMouseLeave={e => e.currentTarget.style.background = C.ink}>
                         {step.link.label} <ExternalLink size={12} />
                       </a>
                     )}
@@ -2182,8 +2235,8 @@ function WatchoutCard({ w, defaultOpen = false }) {
       {open && (
         <div style={{ padding: "0 1.1rem 1.1rem 2.85rem" }}>
           <p style={{ fontSize: "0.88rem", color: C.muted, lineHeight: 1.5, margin: 0 }}>{w.body}</p>
-          {w.link && (
-            <a href={w.link.url} target="_blank" rel="noopener noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: "0.3rem", marginTop: "0.6rem", fontSize: "0.83rem", color: C.accent, textDecoration: "none", fontWeight: 500 }}>
+          {w.link && safeHttpUrl(w.link.url) && (
+            <a href={safeHttpUrl(w.link.url)} target="_blank" rel="noopener noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: "0.3rem", marginTop: "0.6rem", fontSize: "0.83rem", color: C.accent, textDecoration: "none", fontWeight: 500 }}>
               {w.link.label} <ExternalLink size={11} />
             </a>
           )}
@@ -2207,7 +2260,10 @@ function Audit({ step, setStep, answers, setAnswers, onComplete, onExit }) {
   const setAnswer = (val) => setAnswers(prev => ({ ...prev, [currentQ.id]: val }));
   const canAdvance = () => {
     const v = answers[currentQ.id];
-    if (currentQ.type === "number") return v !== undefined && v !== "" && Number(v) >= (currentQ.min || 0);
+    if (currentQ.type === "number") {
+      const n = clampNumber(v, currentQ.min ?? 0, currentQ.max ?? Number.MAX_SAFE_INTEGER);
+      return n !== null;
+    }
     if (currentQ.type === "zip") {
       if (v === undefined || !/^\d{5}$/.test(String(v).trim())) return false;
       // If we have a state, the ZIP must belong to it
@@ -2241,7 +2297,12 @@ function Audit({ step, setStep, answers, setAnswers, onComplete, onExit }) {
           {currentQ.type === "number" && (
             <div style={{ position: "relative", marginBottom: "2rem", maxWidth: "320px" }}>
               {currentQ.prefix && <span style={{ position: "absolute", left: "1rem", top: "50%", transform: "translateY(-50%)", color: C.faint, fontSize: "1.5rem", fontFamily: "'Newsreader', serif" }}>{currentQ.prefix}</span>}
-              <input type="number" value={answers[currentQ.id] || ""} onChange={e => setAnswer(e.target.value)} placeholder={currentQ.placeholder} autoFocus style={{ width: "100%", padding: currentQ.prefix ? "1rem 1rem 1rem 2.5rem" : "1rem", fontSize: "1.5rem", fontFamily: "'Newsreader', serif", border: `1px solid ${C.line}`, borderRadius: "2px", background: C.paper, outline: "none", color: C.ink }} onFocus={e => e.target.style.borderColor = C.accent} onBlur={e => e.target.style.borderColor = C.line} />
+              <input type="number" min={currentQ.min} max={currentQ.max} value={answers[currentQ.id] || ""} onChange={e => setAnswer(e.target.value)} placeholder={currentQ.placeholder} autoFocus style={{ width: "100%", padding: currentQ.prefix ? "1rem 1rem 1rem 2.5rem" : "1rem", fontSize: "1.5rem", fontFamily: "'Newsreader', serif", border: `1px solid ${C.line}`, borderRadius: "2px", background: C.paper, outline: "none", color: C.ink }} onFocus={e => e.target.style.borderColor = C.accent} onBlur={e => e.target.style.borderColor = C.line} />
+              {answers[currentQ.id] !== undefined && answers[currentQ.id] !== "" && clampNumber(answers[currentQ.id], currentQ.min ?? 0, currentQ.max ?? Number.MAX_SAFE_INTEGER) === null && (
+                <p style={{ marginTop: "0.65rem", fontSize: "0.82rem", color: "#c2453a", lineHeight: 1.45 }}>
+                  {currentQ.max != null ? `Enter a number between ${currentQ.min ?? 0} and ${currentQ.max}.` : `Enter a number of at least ${currentQ.min ?? 0}.`}
+                </p>
+              )}
             </div>
           )}
 
@@ -2395,36 +2456,44 @@ function NotifyMeSection({ answers }) {
   const [submitted, setSubmitted] = useState({}); // map of programId -> email
   const [emails, setEmails] = useState({}); // map of programId -> draft email
   const [errors, setErrors] = useState({}); // map of programId -> error string
+  const [consent, setConsent] = useState({}); // map of programId -> opted in
+  const lastSubmitAt = useRef(0);
+  const submitCount = useRef(0);
 
   if (!GUIDE_REQUEST_FORM.endpoint || visiblePrograms.length === 0) return null;
 
-  const buildContext = () => {
-    const ctx = {
-      age: getAge(answers),
-      marital: answers.marital,
-      assets: answers.assets,
-      income_monthly: answers.income,
-      medicare_status: answers.medicare_status,
-      veteran: answers.veteran,
-      homeowner: answers.homeowner,
-      recommended: recommendedGuides(answers),
-    };
-    return JSON.stringify(ctx);
-  };
-
   const submit = async (program) => {
-    const email = (emails[program.id] || "").trim();
-    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    const email = limitText((emails[program.id] || "").trim(), MAX_EMAIL_LEN);
+    if (!isValidEmail(email)) {
       setErrors(e => ({ ...e, [program.id]: "Enter a valid email address." }));
       return;
     }
+    if (!consent[program.id]) {
+      setErrors(e => ({ ...e, [program.id]: "Check the box to confirm we may email you about this guide." }));
+      return;
+    }
+    const now = Date.now();
+    if (now - lastSubmitAt.current < 4000) {
+      setErrors(e => ({ ...e, [program.id]: "Please wait a few seconds before submitting again." }));
+      return;
+    }
+    if (submitCount.current >= 8) {
+      setErrors(e => ({ ...e, [program.id]: "Too many requests this session. Try again later." }));
+      return;
+    }
+    lastSubmitAt.current = now;
+    submitCount.current += 1;
     setErrors(e => ({ ...e, [program.id]: "" }));
 
+    // Do not send income, assets, veteran status, or age — those are
+    // financial/health-adjacent and the form endpoint is public in the bundle.
     const body = new URLSearchParams();
     body.append(GUIDE_REQUEST_FORM.fields.email, email);
     body.append(GUIDE_REQUEST_FORM.fields.program, `${program.id} — ${program.name}`);
-    body.append(GUIDE_REQUEST_FORM.fields.state, answers.state || "");
-    body.append(GUIDE_REQUEST_FORM.fields.context, buildContext());
+    body.append(GUIDE_REQUEST_FORM.fields.state, String(answers.state || "").slice(0, 2));
+    body.append(GUIDE_REQUEST_FORM.fields.context, JSON.stringify({
+      medicare_status: answers.medicare_status || "",
+    }));
 
     try {
       // Google Forms doesn't return CORS-friendly responses; no-cors makes
@@ -2466,22 +2535,35 @@ function NotifyMeSection({ answers }) {
                   <Check size={14} /> Got it — we'll email <strong style={{ fontStyle: "normal" }}>{done}</strong> when this guide is ready.
                 </div>
               ) : (
-                <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "stretch" }}>
-                  <input
-                    type="email"
-                    value={draftEmail}
-                    onChange={e => setEmails(s => ({ ...s, [p.id]: e.target.value }))}
-                    placeholder="your@email.com"
-                    style={{ flex: 1, minWidth: "180px", padding: "0.55rem 0.75rem", fontSize: "0.9rem", fontFamily: "inherit", border: `1px solid ${err ? "#c2453a" : C.line}`, borderRadius: "2px", background: C.paper, outline: "none", color: C.ink }}
-                    onFocus={e => { if (!err) e.target.style.borderColor = C.accent; }}
-                    onBlur={e => { e.target.style.borderColor = err ? "#c2453a" : C.line; }}
-                  />
-                  <button
-                    onClick={() => submit(p)}
-                    style={{ background: C.ink, color: C.bg, border: "none", padding: "0.55rem 1rem", fontSize: "0.85rem", fontFamily: "inherit", fontWeight: 500, cursor: "pointer", borderRadius: "2px", display: "inline-flex", alignItems: "center", gap: "0.4rem" }}
-                  >
-                    <Mail size={13} /> Notify me
-                  </button>
+                <div>
+                  <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "stretch" }}>
+                    <input
+                      type="email"
+                      autoComplete="email"
+                      maxLength={MAX_EMAIL_LEN}
+                      value={draftEmail}
+                      onChange={e => setEmails(s => ({ ...s, [p.id]: limitText(e.target.value, MAX_EMAIL_LEN) }))}
+                      placeholder="your@email.com"
+                      style={{ flex: 1, minWidth: "180px", padding: "0.55rem 0.75rem", fontSize: "0.9rem", fontFamily: "inherit", border: `1px solid ${err ? "#c2453a" : C.line}`, borderRadius: "2px", background: C.paper, outline: "none", color: C.ink }}
+                      onFocus={e => { if (!err) e.target.style.borderColor = C.accent; }}
+                      onBlur={e => { e.target.style.borderColor = err ? "#c2453a" : C.line; }}
+                    />
+                    <button
+                      onClick={() => submit(p)}
+                      style={{ background: C.ink, color: C.bg, border: "none", padding: "0.55rem 1rem", fontSize: "0.85rem", fontFamily: "inherit", fontWeight: 500, cursor: "pointer", borderRadius: "2px", display: "inline-flex", alignItems: "center", gap: "0.4rem" }}
+                    >
+                      <Mail size={13} /> Notify me
+                    </button>
+                  </div>
+                  <label style={{ display: "flex", gap: "0.45rem", alignItems: "flex-start", marginTop: "0.6rem", fontSize: "0.78rem", color: C.muted, lineHeight: 1.45, cursor: "pointer" }}>
+                    <input
+                      type="checkbox"
+                      checked={!!consent[p.id]}
+                      onChange={e => setConsent(s => ({ ...s, [p.id]: e.target.checked }))}
+                      style={{ marginTop: "0.15rem" }}
+                    />
+                    <span>Email me only when this guide is ready. We will not sell your address or send income details with this request.</span>
+                  </label>
                 </div>
               )}
               {err && !done && (
@@ -2507,7 +2589,7 @@ function Results({ answers, onRestart, onBookConsultation, onViewGuides }) {
         <div className="fade-up">
           {result.stateData && !result.stateData.seeded && (
             <div style={{ background: C.paper, border: `1px solid ${C.line}`, borderLeft: `3px solid ${C.gold}`, padding: "0.85rem 1rem", borderRadius: "2px", marginBottom: "1.5rem", fontSize: "0.85rem", color: C.muted, lineHeight: 1.5 }}>
-              <strong style={{ color: C.ink }}>{result.stateData.name}:</strong> federal programs below apply nationwide. Detailed {result.stateData.name}-specific programs are coming soon — for now, your state's <a href={result.stateData.shipUrl} target="_blank" rel="noopener noreferrer" style={{ color: C.accent, fontWeight: 500 }}>SHIP counselors</a> are the best resource for state-specific benefits.
+              <strong style={{ color: C.ink }}>{result.stateData.name}:</strong> federal programs below apply nationwide. Detailed {result.stateData.name}-specific programs are coming soon — for now, your state's {safeHttpUrl(result.stateData.shipUrl) ? <a href={safeHttpUrl(result.stateData.shipUrl)} target="_blank" rel="noopener noreferrer" style={{ color: C.accent, fontWeight: 500 }}>SHIP counselors</a> : "SHIP counselors"} are the best resource for state-specific benefits.
             </div>
           )}
           <p className="fade-up stagger-1" style={{ fontFamily: "'Newsreader', serif", fontStyle: "italic", color: C.faint, fontSize: "0.9rem", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "1rem" }}>Your review results</p>
@@ -2929,7 +3011,7 @@ function Consultation({ onBack, onRestart }) {
     setContact(c => ({ ...c, topics: c.topics.includes(t) ? c.topics.filter(x => x !== t) : [...c.topics, t] }));
   };
 
-  const canSubmit = contact.name.trim() && contact.email.trim() && contact.phone.trim();
+  const canSubmit = contact.name.trim() && isValidEmail(contact.email) && contact.phone.trim().length >= 7;
 
   return (
     <div style={{ minHeight: "100vh", padding: "2rem 1.5rem" }}>
@@ -3044,13 +3126,13 @@ function Consultation({ onBack, onRestart }) {
 
             <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem", marginBottom: "1.5rem" }}>
               <Field label="Your name" icon={<User size={16}/>}>
-                <input type="text" autoFocus value={contact.name} onChange={e => setContact({ ...contact, name: e.target.value })} placeholder="First and last" style={inputStyle} />
+                <input type="text" autoComplete="name" maxLength={MAX_NAME_LEN} autoFocus value={contact.name} onChange={e => setContact({ ...contact, name: limitText(e.target.value, MAX_NAME_LEN) })} placeholder="First and last" style={inputStyle} />
               </Field>
               <Field label="Email" icon={<Mail size={16}/>}>
-                <input type="email" value={contact.email} onChange={e => setContact({ ...contact, email: e.target.value })} placeholder="you@example.com" style={inputStyle} />
+                <input type="email" autoComplete="email" maxLength={MAX_EMAIL_LEN} value={contact.email} onChange={e => setContact({ ...contact, email: limitText(e.target.value, MAX_EMAIL_LEN) })} placeholder="you@example.com" style={inputStyle} />
               </Field>
               <Field label="Phone (in case the video call drops)" icon={<Phone size={16}/>}>
-                <input type="tel" value={contact.phone} onChange={e => setContact({ ...contact, phone: e.target.value })} placeholder="(410) 555-0100" style={inputStyle} />
+                <input type="tel" autoComplete="tel" maxLength={MAX_PHONE_LEN} value={contact.phone} onChange={e => setContact({ ...contact, phone: limitText(e.target.value, MAX_PHONE_LEN) })} placeholder="(410) 555-0100" style={inputStyle} />
               </Field>
             </div>
 
@@ -3075,20 +3157,23 @@ function Consultation({ onBack, onRestart }) {
             </div>
 
             <Field label="Anything else we should know? (optional)">
-              <textarea value={contact.notes} onChange={e => setContact({ ...contact, notes: e.target.value })} placeholder="e.g., 'I'm caring for my mother and want to plan ahead'" rows={3} style={{ ...inputStyle, fontFamily: "inherit", fontSize: "0.95rem", resize: "vertical" }} />
+              <textarea value={contact.notes} maxLength={MAX_NOTES_LEN} onChange={e => setContact({ ...contact, notes: limitText(e.target.value, MAX_NOTES_LEN) })} placeholder="e.g., 'I'm caring for my mother and want to plan ahead'" rows={3} style={{ ...inputStyle, fontFamily: "inherit", fontSize: "0.95rem", resize: "vertical" }} />
             </Field>
 
-            <div style={{ background: C.bg, border: `1px solid ${C.line}`, padding: "1.25rem", borderRadius: "2px", margin: "1.75rem 0" }}>
+            <div style={{ background: "#fff8e8", border: "1px solid #d4a560", padding: "0.85rem 1rem", borderRadius: "2px", margin: "1.75rem 0 1rem", display: "flex", gap: "0.55rem", alignItems: "flex-start" }}>
+              <AlertCircle size={16} style={{ color: "#a07a30", flexShrink: 0, marginTop: "0.15rem" }} />
+              <p style={{ fontSize: "0.82rem", color: "#5e4716", lineHeight: 1.45, margin: 0 }}>
+                <strong>Demo mode:</strong> nothing is charged and no booking email is sent. Production needs Stripe plus a calendar/email backend before this can take real appointments.
+              </p>
+            </div>
+
+            <div style={{ background: C.bg, border: `1px solid ${C.line}`, padding: "1.25rem", borderRadius: "2px", margin: "0 0 1.75rem" }}>
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.5rem" }}>
-                <span style={{ fontSize: "0.95rem", color: C.muted }}>Consultation fee</span>
+                <span style={{ fontSize: "0.95rem", color: C.muted }}>Consultation fee (when live)</span>
                 <span style={{ fontSize: "0.95rem", color: C.ink, fontWeight: 500 }}>$295.00</span>
               </div>
-              <div style={{ display: "flex", justifyContent: "space-between", paddingTop: "0.5rem", borderTop: `1px solid ${C.line}` }}>
-                <span style={{ fontSize: "1rem", color: C.ink, fontWeight: 600 }}>Total today</span>
-                <span style={{ fontFamily: "'Newsreader', serif", fontStyle: "italic", color: C.accent, fontSize: "1.3rem", fontWeight: 500 }}>$295.00</span>
-              </div>
               <p style={{ fontSize: "0.78rem", color: C.faint, lineHeight: 1.5, margin: "0.75rem 0 0" }}>
-                Payment processed securely. Full refund if you cancel 24+ hours before the call.
+                No payment is collected in this prototype. We will not ask for a card number here.
               </p>
             </div>
 
@@ -3096,7 +3181,7 @@ function Consultation({ onBack, onRestart }) {
               <button onClick={() => setStage(0)} className="secondary-btn" style={{ background: "none", border: "none", cursor: "pointer", color: C.faint, fontSize: "0.95rem", fontFamily: "inherit", display: "flex", alignItems: "center", gap: "0.4rem" }}>
                 <ChevronLeft size={16} /> Back
               </button>
-              <PrimaryButton onClick={() => setStage(2)} disabled={!canSubmit} large>Confirm & pay $295</PrimaryButton>
+              <PrimaryButton onClick={() => setStage(2)} disabled={!canSubmit} large>Save this demo request</PrimaryButton>
             </div>
           </div>
         )}
@@ -3107,15 +3192,15 @@ function Consultation({ onBack, onRestart }) {
             <div style={{ width: "72px", height: "72px", borderRadius: "100%", background: C.accentSoft, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 1.5rem" }}>
               <CheckCircle2 size={40} style={{ color: C.accent }} strokeWidth={1.5}/>
             </div>
-            <SectionLabel>You're booked</SectionLabel>
+            <SectionLabel>Demo request saved</SectionLabel>
             <h1 style={{ fontFamily: "'Newsreader', serif", fontSize: "clamp(2rem, 4.5vw, 2.75rem)", lineHeight: 1.1, fontWeight: 500, letterSpacing: "-0.02em", marginBottom: "1.25rem", color: C.ink }}>
-              See you{" "}
+              You picked{" "}
               <span style={{ fontStyle: "italic", color: C.accent }}>{selectedSlot?.split(" · ")[0]}</span>{" "}
               at{" "}
               <span style={{ fontStyle: "italic", color: C.accent }}>{selectedSlot?.split(" · ")[1]}</span>.
             </h1>
             <p style={{ fontSize: "1.1rem", color: C.muted, lineHeight: 1.55, marginBottom: "2.5rem", maxWidth: "520px", margin: "0 auto 2.5rem" }}>
-              A confirmation email is on its way to <strong style={{ color: C.ink }}>{contact.email}</strong> with the video-call link, calendar invite, and a few things to have ready.
+              This prototype does not charge a card or send email. When booking is live, a confirmation would go to <strong style={{ color: C.ink }}>{contact.email}</strong>.
             </p>
 
             <div style={{ background: C.paper, border: `1px solid ${C.line}`, padding: "1.75rem", borderRadius: "2px", textAlign: "left", marginBottom: "2.5rem" }}>
@@ -3142,7 +3227,7 @@ function Consultation({ onBack, onRestart }) {
               <button onClick={onRestart} className="secondary-btn" style={{ background: "none", border: `1px solid ${C.line}`, cursor: "pointer", color: C.muted, fontSize: "0.95rem", fontFamily: "inherit", padding: "0.85rem 1.5rem", borderRadius: "2px" }}>
                 Done
               </button>
-              <PrimaryButton onClick={() => alert("Calendar invite sent!")}>Add to calendar</PrimaryButton>
+              <PrimaryButton onClick={onRestart}>Back to start</PrimaryButton>
             </div>
 
             <p style={{ fontSize: "0.85rem", color: C.faint, marginTop: "2.5rem", lineHeight: 1.5 }}>
@@ -4148,7 +4233,7 @@ const GUIDE_CATALOG = [
 function recommendedGuides(answers) {
   const isCouple = answers.marital === "couple";
   const hh = isCouple ? 2 : 1;
-  const income = Number(answers.income) || 0;
+  const income = clampNumber(answers.income, 0, 100000) ?? 0;
   const annualIncome = income * 12;
   const fplAnnual = FPL_2026[hh];
   const assetTier = answers.assets;
@@ -4227,7 +4312,7 @@ function buildPersonalizationContext(answers) {
     stateMspGuidance = `Apply at ${stateData.mspApplyUrl}. ${stateName}'s Medicaid agency processes the application. Detailed state-specific guidance for ${stateName} is coming soon — for now, your local SHIP counselor (free at shiphelp.org) is the best resource.`;
   }
 
-  const monthlyIncome = Number(a.income) || 0;
+  const monthlyIncome = clampNumber(a.income, 0, 100000) ?? 0;
   const annualIncome = monthlyIncome > 0 ? `$${(monthlyIncome * 12).toLocaleString()}` : "your annual income";
   const isCouple = a.marital === "couple";
 
@@ -4413,7 +4498,9 @@ async function downloadPdf(guide, buyerName, buyerEmail, answers) {
     // Lazy-load react-pdf so the renderer (~150KB) only ships when needed.
     const reactPdf = await import("@react-pdf/renderer");
     const ctx = buildPersonalizationContext(answers);
-    const docElement = buildCairnDocument({ guide, ctx, buyerName, buyerEmail, primitives: reactPdf });
+    const safeName = limitText(buyerName, MAX_NAME_LEN);
+    const safeEmail = isValidEmail(buyerEmail) ? String(buyerEmail).trim() : "";
+    const docElement = buildCairnDocument({ guide, ctx, buyerName: safeName, buyerEmail: safeEmail, primitives: reactPdf });
     const blob = await reactPdf.pdf(docElement).toBlob();
     const url = URL.createObjectURL(blob);
     const filename = `Cairn-Guide-${guide.id}.pdf`;
@@ -4425,14 +4512,16 @@ async function downloadPdf(guide, buyerName, buyerEmail, answers) {
       // iOS: open in new window — Safari renders PDF inline, user can save via share sheet
       const w = window.open();
       if (w) {
+        const title = escapeHtml(guide.name);
         w.document.write(
-          `<html><head><title>${guide.name}</title></head>` +
+          `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${title}</title></head>` +
           `<body style="margin:0;background:#333"><embed src="${url}" type="application/pdf" width="100%" height="100%" style="height:100vh"/></body></html>`
         );
         w.document.close();
       } else {
         window.location.href = url;
       }
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
       return;
     }
 
@@ -4457,7 +4546,6 @@ function GuideStore({ answers, onBack, onRestart }) {
   const [previewing, setPreviewing] = useState(null);
   const [stage, setStage] = useState("browse"); // browse | checkout | payment | done
   const [contact, setContact] = useState({ email: "", name: "" });
-  const [payment, setPayment] = useState({ card: "", expiry: "", cvc: "", zip: "" });
   const [processing, setProcessing] = useState(false);
 
   const toggleCart = (id) => {
@@ -4508,12 +4596,12 @@ function GuideStore({ answers, onBack, onRestart }) {
             <div style={{ width: "72px", height: "72px", borderRadius: "100%", background: C.accentSoft, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 1.5rem" }}>
               <CheckCircle2 size={40} style={{ color: C.accent }} strokeWidth={1.5} />
             </div>
-            <SectionLabel>Payment received · Guides ready</SectionLabel>
+            <SectionLabel>Demo unlock · Guides ready</SectionLabel>
             <h1 style={{ fontFamily: "'Newsreader', serif", fontSize: "clamp(1.85rem, 4.5vw, 2.5rem)", lineHeight: 1.15, fontWeight: 500, letterSpacing: "-0.02em", marginBottom: "1rem", color: C.ink }}>
-              Thank you, {contact.name.split(" ")[0] || "friend"}.
+              Thank you, {limitText(contact.name.split(" ")[0] || "friend", MAX_NAME_LEN)}.
             </h1>
             <p style={{ fontSize: "1rem", color: C.muted, lineHeight: 1.55, marginBottom: "2rem", maxWidth: "520px", margin: "0 auto 2rem" }}>
-              Your {cart.length} {cart.length === 1 ? "guide is" : "guides are"} ready to download below. We'll also send a copy to <strong style={{ color: C.ink }}>{contact.email}</strong> — keep that email for your records and to access updates.
+              Your {cart.length} {cart.length === 1 ? "guide is" : "guides are"} ready to download below. Nothing was charged. Email delivery is not wired yet, so keep the files on this device.
             </p>
 
             {/* Email simulation banner */}
@@ -4529,6 +4617,7 @@ function GuideStore({ answers, onBack, onRestart }) {
               <div style={{ display: "flex", flexDirection: "column", gap: "0" }}>
                 {cart.map((id, i) => {
                   const g = GUIDE_CATALOG.find(g => g.id === id);
+                  if (!g) return null;
                   return (
                     <div key={id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.85rem", padding: "0.85rem 0", borderBottom: i < cart.length - 1 ? `1px solid ${C.line}` : "none", fontSize: "0.92rem" }}>
                       <div style={{ display: "flex", gap: "0.6rem", alignItems: "center", flex: 1, minWidth: 0 }}>
@@ -4571,20 +4660,17 @@ function GuideStore({ answers, onBack, onRestart }) {
   }
 
   // ─── PAYMENT STAGE ──────────────────────────────────────────────
+  // Never collect PAN/CVC in the browser. A card form here is a PCI
+  // and senior-user risk even when labeled "demo." Production should
+  // redirect to Stripe Checkout (hosted, no card fields on this origin).
   if (stage === "payment") {
-    const cardValid = /^\d{13,19}$/.test(payment.card.replace(/\s/g, ""));
-    const expiryValid = /^\d{2}\/\d{2}$/.test(payment.expiry);
-    const cvcValid = /^\d{3,4}$/.test(payment.cvc);
-    const zipValid = /^\d{5}$/.test(payment.zip);
-    const canPay = cardValid && expiryValid && cvcValid && zipValid && !processing;
-
-    const handlePay = () => {
+    const handleUnlock = () => {
       setProcessing(true);
       setTimeout(() => {
         setProcessing(false);
         setStage("done");
         window.scrollTo(0, 0);
-      }, 1500);
+      }, 400);
     };
 
     return (
@@ -4597,15 +4683,15 @@ function GuideStore({ answers, onBack, onRestart }) {
             </button>
           </header>
           <div className="fade-up">
-            <SectionLabel>Step 2 of 2 · Payment</SectionLabel>
+            <SectionLabel>Step 2 of 2 · Demo unlock</SectionLabel>
             <h1 style={{ fontFamily: "'Newsreader', serif", fontSize: "clamp(1.85rem, 4.5vw, 2.5rem)", lineHeight: 1.15, fontWeight: 500, letterSpacing: "-0.02em", marginBottom: "1.5rem", color: C.ink }}>
-              Secure checkout
+              No card needed for this prototype
             </h1>
 
             <div style={{ background: "#fff8e8", border: "1px solid #d4a560", padding: "0.85rem 1rem", borderRadius: "2px", marginBottom: "1.25rem", display: "flex", gap: "0.55rem", alignItems: "flex-start" }}>
               <AlertCircle size={16} style={{ color: "#a07a30", flexShrink: 0, marginTop: "0.15rem" }} />
               <p style={{ fontSize: "0.82rem", color: "#5e4716", lineHeight: 1.45, margin: 0 }}>
-                <strong>Demo mode:</strong> No real charge will be made. Use any test card number (e.g., <code style={{ background: "#fff", padding: "0 0.3rem", borderRadius: "2px" }}>4242 4242 4242 4242</code>). Production would integrate Stripe Checkout for PCI-compliant payments.
+                <strong>Demo mode:</strong> we do not collect card numbers, CVC, or expiry on this site. Production will send you to Stripe Checkout so card data never touches Cairn.
               </p>
             </div>
 
@@ -4615,69 +4701,15 @@ function GuideStore({ answers, onBack, onRestart }) {
                 <span style={{ fontSize: "0.95rem", color: C.ink, fontWeight: 500 }}>${cartTotal}.00</span>
               </div>
               <div style={{ display: "flex", justifyContent: "space-between", paddingTop: "0.5rem", borderTop: `1px solid ${C.line}` }}>
-                <span style={{ fontSize: "1rem", color: C.ink, fontWeight: 600 }}>Total</span>
-                <span style={{ fontFamily: "'Newsreader', serif", fontStyle: "italic", color: C.accent, fontSize: "1.3rem", fontWeight: 500 }}>${cartTotal}.00</span>
+                <span style={{ fontSize: "1rem", color: C.ink, fontWeight: 600 }}>Amount that would be charged</span>
+                <span style={{ fontFamily: "'Newsreader', serif", fontStyle: "italic", color: C.accent, fontSize: "1.3rem", fontWeight: 500 }}>$0.00</span>
               </div>
-            </div>
-
-            <div style={{ display: "flex", flexDirection: "column", gap: "1rem", marginBottom: "1.5rem" }}>
-              <Field label="Card number">
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  value={payment.card}
-                  onChange={e => {
-                    const digits = e.target.value.replace(/\D/g, "").slice(0, 19);
-                    const formatted = digits.replace(/(\d{4})(?=\d)/g, "$1 ");
-                    setPayment({ ...payment, card: formatted });
-                  }}
-                  placeholder="4242 4242 4242 4242"
-                  style={inputStyle}
-                  autoFocus
-                />
-              </Field>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
-                <Field label="Expiry (MM/YY)">
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    value={payment.expiry}
-                    onChange={e => {
-                      let v = e.target.value.replace(/\D/g, "").slice(0, 4);
-                      if (v.length > 2) v = v.slice(0, 2) + "/" + v.slice(2);
-                      setPayment({ ...payment, expiry: v });
-                    }}
-                    placeholder="12/28"
-                    style={inputStyle}
-                  />
-                </Field>
-                <Field label="CVC">
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    value={payment.cvc}
-                    onChange={e => setPayment({ ...payment, cvc: e.target.value.replace(/\D/g, "").slice(0, 4) })}
-                    placeholder="123"
-                    style={inputStyle}
-                  />
-                </Field>
-              </div>
-              <Field label="Billing ZIP">
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  value={payment.zip}
-                  onChange={e => setPayment({ ...payment, zip: e.target.value.replace(/\D/g, "").slice(0, 5) })}
-                  placeholder="21403"
-                  style={inputStyle}
-                />
-              </Field>
             </div>
 
             <div style={{ background: C.bg, border: `1px solid ${C.line}`, padding: "0.85rem 1rem", borderRadius: "2px", marginBottom: "1.5rem", display: "flex", gap: "0.55rem", alignItems: "center" }}>
               <Lock size={14} style={{ color: C.faint, flexShrink: 0 }} />
               <p style={{ fontSize: "0.78rem", color: C.muted, lineHeight: 1.45, margin: 0 }}>
-                30-day money-back guarantee · Free guide updates for 12 months
+                Guides unlock locally in your browser. Nothing is billed and no email is sent.
               </p>
             </div>
 
@@ -4685,8 +4717,8 @@ function GuideStore({ answers, onBack, onRestart }) {
               <button onClick={() => setStage("checkout")} disabled={processing} className="secondary-btn" style={{ background: "none", border: "none", cursor: processing ? "not-allowed" : "pointer", color: C.faint, fontSize: "0.95rem", fontFamily: "inherit", display: "flex", alignItems: "center", gap: "0.4rem", opacity: processing ? 0.5 : 1 }}>
                 <ChevronLeft size={16} /> Back
               </button>
-              <PrimaryButton onClick={handlePay} disabled={!canPay} large>
-                {processing ? "Processing..." : `Pay $${cartTotal}`}
+              <PrimaryButton onClick={handleUnlock} disabled={processing} large>
+                {processing ? "Unlocking..." : "Unlock demo guides"}
               </PrimaryButton>
             </div>
           </div>
@@ -4717,6 +4749,7 @@ function GuideStore({ answers, onBack, onRestart }) {
               <div style={{ display: "flex", flexDirection: "column", gap: "0", marginBottom: "0.5rem" }}>
                 {cart.map((id, i) => {
                   const g = GUIDE_CATALOG.find(g => g.id === id);
+                  if (!g) return null;
                   return (
                     <div key={id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.5rem 0", fontSize: "0.9rem", borderBottom: i < cart.length - 1 ? `1px solid ${C.line}` : "none" }}>
                       <span style={{ color: C.muted }}>{g.name}</span>
@@ -4738,10 +4771,10 @@ function GuideStore({ answers, onBack, onRestart }) {
 
             <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem", marginBottom: "1.5rem" }}>
               <Field label="Email" icon={<Mail size={16} />}>
-                <input type="email" autoFocus value={contact.email} onChange={e => setContact({ ...contact, email: e.target.value })} placeholder="you@example.com" style={inputStyle} />
+                <input type="email" autoComplete="email" maxLength={MAX_EMAIL_LEN} autoFocus value={contact.email} onChange={e => setContact({ ...contact, email: limitText(e.target.value, MAX_EMAIL_LEN) })} placeholder="you@example.com" style={inputStyle} />
               </Field>
               <Field label="Your name" icon={<User size={16} />}>
-                <input type="text" value={contact.name} onChange={e => setContact({ ...contact, name: e.target.value })} placeholder="First and last" style={inputStyle} />
+                <input type="text" autoComplete="name" maxLength={MAX_NAME_LEN} value={contact.name} onChange={e => setContact({ ...contact, name: limitText(e.target.value, MAX_NAME_LEN) })} placeholder="First and last" style={inputStyle} />
               </Field>
             </div>
 
@@ -4749,8 +4782,8 @@ function GuideStore({ answers, onBack, onRestart }) {
               <button onClick={() => setStage("browse")} className="secondary-btn" style={{ background: "none", border: "none", cursor: "pointer", color: C.faint, fontSize: "0.95rem", fontFamily: "inherit", display: "flex", alignItems: "center", gap: "0.4rem" }}>
                 <ChevronLeft size={16} /> Back
               </button>
-              <PrimaryButton onClick={() => { setStage("payment"); window.scrollTo(0, 0); }} disabled={!contact.email.trim() || !contact.name.trim()} large>
-                Continue to payment
+              <PrimaryButton onClick={() => { setStage("payment"); window.scrollTo(0, 0); }} disabled={!isValidEmail(contact.email) || !contact.name.trim()} large>
+                Continue
               </PrimaryButton>
             </div>
           </div>
